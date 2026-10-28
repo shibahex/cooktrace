@@ -180,6 +180,7 @@
   import Shopping     from './routes/Shopping.svelte';
   import Login          from './routes/Login.svelte';
   import CommunityNames from './routes/CommunityNames.svelte'; // ourfamily fork
+  import HouseholdScope from './components/community/HouseholdScope.svelte'; // ourfamily fork
   import Trace      from './components/ai/Trace.svelte';
 
   // Lazy-loaded routes. svelte-spa-router accepts a `wrap()` async
@@ -206,12 +207,12 @@
     '/recipes/edit':       RecipeEditor,
     '/recipes/edit/:id':   RecipeEditor,
     '/recipes/:id':        RecipeView,
-    '/pantry':             Pantry,
+    '/pantry':             wrap({ component: HouseholdScope, props: { component: Pantry, what: 'pantry' } }),     // ourfamily fork
     '/pantry/edit':        PantryEditor,
     '/pantry/edit/:id':    PantryEditor,
     '/pantry/:id':         PantryView,
     '/diary':              CookDiary,
-    '/shopping':           Shopping,
+    '/shopping':           wrap({ component: HouseholdScope, props: { component: Shopping, what: 'shopping' } }), // ourfamily fork
     '/manage':             Manage,
     '/manage/:section':    Manage,
     '/cookbooks/:id':      CookbookView,

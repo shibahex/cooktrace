@@ -8,8 +8,8 @@ plus a "community mode" for a single family recipe box.
 - **No sign-in needed.** A visitor without an account is signed in by the
   server as one shared guest account and can use the whole app: add
   and import recipes, pantry, diary, shopping, cookbooks. Everything the
-  guest account holds (its recipes, pantry, shopping list, settings) is
-  shared by every visitor who hasn't signed in. "Sign in" sits in the
+  guest account holds (its recipes, diary, settings) is shared by every
+  visitor who hasn't signed in. "Sign in" sits in the
   sidebar (and at `#/login`); signing out drops you back to the guest
   account.
 - **Visitors give a name when it matters.** The first time a visitor does
@@ -27,8 +27,8 @@ plus a "community mode" for a single family recipe box.
   account if it's missing). "No name" covers things added before
   visitors gave names. Like the rest of the app, the page is open to
   anyone, signed in or not.
-- **Accounts are optional.** Signing in gives you your own pantry, diary
-  and shopping list, and recipes you can hide.
+- **Accounts are optional.** Signing in gives you your own diary,
+  recipes you can hide, and households you can join or start.
 - **Every recipe is public by default, and its owner can hide it.** A
   recipe anyone adds or imports shows up for everyone. On a recipe you
   own, the eye button in its header hides it from everyone but you (and
@@ -37,14 +37,30 @@ plus a "community mode" for a single family recipe box.
   hidden, since every visitor is the same account. Only a recipe's owner
   (or an admin) can edit or delete it.
 - **What Guest can't do:** change its name or password, delete itself,
-  link single sign-on, or create or join kitchens.
+  link single sign-on, or start or join households (it can still use
+  them, see below).
 - **One list.** The separate "Shared" tab is gone; other people's recipes
   sit in the main Recipes list with a badge showing who added them.
-- **Kitchens (households) are a side tab.** They work as upstream has
-  them (Settings → Kitchens, members, Sous Chef editing), but they're no
-  longer how recipes reach people. The Recipes page has a Kitchens tab
-  after Cookbooks that filters the full list down to recipes added by the
-  members of a kitchen you're in (with a picker if you're in several).
+- **Households own the pantry and the shopping list.** A family has
+  several households; each has one pantry and one shopping list shared by
+  its members. The diary stays per person. Pantry and Shopping show which
+  household you're in (tap it to switch); with none picked they show the
+  households to pick, join or start. "Move" offers to bring what you had
+  in your own pantry and list from before into the household.
+- **Joining.** Each household is either open (anyone with an account can
+  join) or invite only (its owner or an admin adds people). Settings →
+  Households lists them: members, add or remove people, make someone the
+  owner, who can join, "Guests welcome", rename, leave, delete.
+- **Guests and households.** Settings → Permissions (admins): guests can
+  use every household (default, as open as possible), or only households
+  that tick "Guests welcome". Guests pick a household the same way.
+- **Recipes can belong to a household.** The editor has a Household
+  field (it starts on the household you're in), and a recipe's byline
+  shows its household; its owner can change it there. The Recipes page
+  has a Households tab after Cookbooks that lists a household's recipes
+  (with a picker if there are several). Recipes stay visible to everyone.
+- **"In stock" counts use the household's pantry**, matching ingredient
+  names ("flour" covers "bread flour").
 
 On by default. Set `COMMUNITY_MODE=false` to get upstream behaviour back
 (recipes that were made public stay public; the Guest account stays in
@@ -59,7 +75,9 @@ It's made the first time someone visits after the admin account exists,
 and gets a copy of the admin's recipe categories. If an admin deletes it,
 a fresh one is made on the next visit (the old one's recipes go with it).
 
-The Android app is unchanged: it still signs in as before. Requests that
+The Android app is unchanged: it still signs in as before, and keeps
+upstream's per-account pantry and shopping list (households are a
+web-app thing). Requests that
 carry an `Authorization` header (the app, API tokens) are never treated
 as Guest.
 
@@ -70,12 +88,21 @@ Most of the code lives in new files, so upstream merges rarely conflict:
 | File | What it does |
 | --- | --- |
 | `server/lib/community.js` | The `COMMUNITY_MODE` flag; the Guest account and the middleware that signs visitors in as it; SQLite triggers that start every new recipe at `visibility = 'group'` (upstream's existing "everyone can read" value) however it's written, and keep Guest's recipes there. Hidden = upstream's `'private'`. |
-| `server/routes/community.js` | Mounted on `/api` ahead of upstream routes: the merged list (everyone else's public recipes), `PUT /api/community/recipes/:id/hidden`, and `/api/community/kitchens` (your kitchens with member ids, for the tab). Calls `next()` for anything it doesn't handle. |
+| `server/routes/community.js` | Mounted on `/api` ahead of upstream routes: the merged list (everyone else's public recipes), `PUT /api/community/recipes/:id/hidden`, visitor names and the Names merge. Calls `next()` for anything it doesn't handle. |
+| `server/lib/households.js` | Households: tables (`ourfamily_households`: join policy, guests, the household's hidden account; `ourfamily_recipe_households`), who may use or manage one, the guest-access setting, name-based stock matching. |
+| `server/routes/households.js` | Serves `/api/pantry` and `/api/shopping` as the picked household's account (cookie `ct_household`, web only), files new recipes under the household sent in `X-Ourfamily-Household`, and `/api/community/households…`, `/people`, `/permissions`, `/recipes/:id/household`. |
 | `src/stores/community.js` | `isGuest` store. |
 | `src/lib/community-name.js` | Wraps `fetch` (web only): a 428 `need_name` answer opens the name prompt, saves the name, and sends the request again, so upstream's components need no changes. |
 | `src/components/community/GuestNamePrompt.svelte` | The "What's your name?" box. |
 | `src/components/community/NamesMerge.svelte` | The list of names and the merge buttons (`GET /api/community/names`, `POST /api/community/names/merge`). Also registers the "Names" title for Settings. |
 | `src/routes/CommunityNames.svelte` | The Names page around it (sidebar → Names). |
+| `src/stores/households.js` | Households list, the picked household (cookie), and the household for a new recipe. |
+| `src/components/community/HouseholdScope.svelte` | Wraps the Pantry and Shopping routes: the household switcher, or the picker when none is picked. |
+| `src/components/community/HouseholdList.svelte` | Pick, join, start; with `manage`, members and settings. |
+| `src/components/community/{HouseholdField,RecipeHousehold}.svelte` | Household in the recipe editor, and in a recipe's byline. |
+| `src/components/community/{SettingsHouseholds,SettingsPermissions}.svelte` | Settings → Households (instead of Kitchens) and Settings → Permissions. |
+
+Each household's pantry and list live under a hidden `users` row (`household-<id>`, no password), so upstream's pantry and shopping code needs no change. These rows and the guest account are left out of every list of people. Deleting a household deletes its row, and so its pantry and list.
 
 How the name gets onto things: the server sets `req.user.username` to
 the visitor's name for the guest account, and upstream already copies
@@ -88,7 +115,7 @@ name are listed in `NEEDS_NAME` in `server/lib/community.js`.
 
 Small edits to upstream files, each marked with an `ourfamily fork` comment:
 `server/index.js`, `server/routes/auth.js`, `src/stores/auth.js`,
-`src/App.svelte`, `src/components/layout/Sidebar.svelte`, `src/routes/Settings.svelte` (Names section), `src/routes/Wizard.svelte`, `src/stores/settings.js` (header gradient off by default),
+`src/App.svelte`, `src/components/layout/Sidebar.svelte`, `src/routes/Settings.svelte` (Names, Households, Permissions), `src/routes/RecipeEditor.svelte` (Household field), `src/routes/Wizard.svelte`, `src/stores/settings.js` (header gradient off by default),
 `src/routes/{Login,Recipes,RecipeView}.svelte`.
 
 To list them: `git grep -n "ourfamily fork"`.
@@ -157,8 +184,7 @@ doesn't get copied into the Alpine image.
 
 ## Tests
 
-One upstream test (`scripts/android-sync.test.js`) expects new recipes to
-be private, which community mode deliberately changes.
+Two upstream tests in `scripts/android-sync.test.js` fail with the mode on, by design: one expects new recipes to be private, one posts to the web shopping list with no household picked.
 
 `scripts/public-url.test.js` reads `server/index.js` as text and expects
 the admin-address middleware right after `authenticate`, so the

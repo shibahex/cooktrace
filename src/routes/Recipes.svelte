@@ -16,6 +16,7 @@
   // the Shared tab goes away; guests get a read-only page.
   import { derived } from 'svelte/store';
   import { communityMode, isGuest } from '../stores/community.js';
+  import { householdsState, activeHouseholdId, loadHouseholds } from '../stores/households.js'; // ourfamily fork
   const mixSharedIntoRecipes = derived([_mixSharedSetting, communityMode], ([a, b]) => a || b);
   import ActionSheet from '../components/ui/ActionSheet.svelte';
   import ImportFromFileDialog from '../components/recipe/ImportFromFileDialog.svelte';
@@ -610,24 +611,22 @@
   let vtBtnRecipes = null;
   let vtBtnShared = null;
   let vtBtnCookbooks = null;
-  // ourfamily fork: Kitchens tab. Every recipe is already in the main list,
-  // so this is a filter: recipes by the members of one of your kitchens.
+  // ourfamily fork: Households tab. Every recipe is already in the main
+  // list; this shows the ones assigned to a household (stores/households.js).
   let vtBtnKitchens = null;
-  let myKitchens = [];
+  $: myKitchens = $householdsState.households.filter(h => !$householdsState.is_guest || h.can_use);
   let activeKitchenId = null;
-  $: activeKitchen = myKitchens.find(k => k.id === activeKitchenId) || myKitchens[0] || null;
-  $: kitchenMemberIds = new Set((activeKitchen?.members || []).map(m => m.user_id));
-  async function _loadKitchens() {
-    if (!$communityMode || $isGuest) { myKitchens = []; return; }
-    try { myKitchens = await NtApi.get('/api/community/kitchens'); } catch { myKitchens = []; }
-  }
+  $: activeKitchen = myKitchens.find(k => k.id === activeKitchenId)
+    || myKitchens.find(k => k.id === $activeHouseholdId) || myKitchens[0] || null;
+  $: kitchenRecipeIds = new Set(activeKitchen?.recipe_ids || []);
+  function _loadKitchens() { if ($communityMode) loadHouseholds(); }
   let vtPillX = 0;
   let vtPillW = 0;
   function _measureVtPill() {
     if (!vtContainer) return;
     const btn = viewMode === 'shared' ? vtBtnShared
               : viewMode === 'cookbooks' ? vtBtnCookbooks
-              : viewMode === 'kitchens' ? vtBtnKitchens
+              : viewMode === 'households' ? vtBtnKitchens
               : vtBtnRecipes;
     if (!btn) return;
     const cRect = vtContainer.getBoundingClientRect();
@@ -685,7 +684,7 @@
     const params = new URLSearchParams(q);
     const v = params.get('view');
     if (v === 'cookbooks' || (v === 'shared' && !$communityMode)) return v; // ourfamily fork
-    if (v === 'kitchens' && $communityMode && !$isGuest) return v;          // ourfamily fork
+    if (v === 'households' && $communityMode) return v;                   // ourfamily fork
     return 'recipes';
   }
   function _writeUrl() {
@@ -693,7 +692,7 @@
     const base = '#/recipes';
     const params = new URLSearchParams();
     if (viewMode === 'cookbooks') params.set('view', 'cookbooks');
-    if (viewMode === 'kitchens') params.set('view', 'kitchens'); // ourfamily fork
+    if (viewMode === 'households') params.set('view', 'households'); // ourfamily fork
     if (activeCategorySlug) params.set('category', activeCategorySlug);
     const qs = params.toString();
     const next = qs ? `${base}?${qs}` : base;
@@ -768,7 +767,7 @@
       const extras = sharedRecipes.filter(r => !seen.has(r.id));
       list = [...recipes, ...extras];
     }
-    if (viewMode === 'kitchens') list = list.filter(r => kitchenMemberIds.has(r.user_id)); // ourfamily fork
+    if (viewMode === 'households') list = list.filter(r => kitchenRecipeIds.has(r.id)); // ourfamily fork
     if (favoritesOnly) list = list.filter(r => r.favorite);
     if (activeCategorySlug) {
       list = list.filter(r => r.category && r.category.slug === activeCategorySlug);
@@ -1317,23 +1316,23 @@
           Cookbooks
           <span class="vt-count">{cookbooks.length}</span>
         </button>
-        {#if $communityMode && !$isGuest}
-        <!-- ourfamily fork: Kitchens sit last, the main list stays first. -->
-        <button class="vt-btn" class:active={viewMode === 'kitchens'}
+        {#if $communityMode}
+        <!-- ourfamily fork: Households sit last, the main list stays first. -->
+        <button class="vt-btn" class:active={viewMode === 'households'}
           bind:this={vtBtnKitchens}
-          on:click={() => setViewMode('kitchens')}
-          aria-pressed={viewMode === 'kitchens'}>
-          <span class="material-symbols-rounded">cooking</span>
-          Kitchens
+          on:click={() => setViewMode('households')}
+          aria-pressed={viewMode === 'households'}>
+          <span class="material-symbols-rounded">home</span>
+          Households
           {#if myKitchens.length}<span class="vt-count">{myKitchens.length}</span>{/if}
         </button>
         {/if}
       </div>
     {/if}
 
-    {#if viewMode === 'kitchens' && myKitchens.length > 1}
-      <!-- ourfamily fork: which kitchen's recipes to show. -->
-      <div class="cat-filter kitchen-picker" role="radiogroup" aria-label="Kitchen">
+    {#if viewMode === 'households' && myKitchens.length > 1}
+      <!-- ourfamily fork: which household's recipes to show. -->
+      <div class="cat-filter kitchen-picker" role="radiogroup" aria-label="Household">
         {#each myKitchens as k (k.id)}
           <button class="cat-chip" class:active={activeKitchen?.id === k.id}
             aria-pressed={activeKitchen?.id === k.id}
@@ -1341,7 +1340,7 @@
         {/each}
       </div>
     {/if}
-    {#if (viewMode === 'recipes' || (viewMode === 'kitchens' && myKitchens.length > 0)) && (recipes.length > 0 || ($mixSharedIntoRecipes && sharedRecipes.length > 0))}
+    {#if (viewMode === 'recipes' || (viewMode === 'households' && myKitchens.length > 0)) && (recipes.length > 0 || ($mixSharedIntoRecipes && sharedRecipes.length > 0))}
     <div class="sticky-controls">
       <div class="search-row">
         <span class="material-symbols-rounded search-icon">search</span>
@@ -1593,20 +1592,24 @@
           {/each}
         </div>
       {/if}
-    {:else if viewMode === 'kitchens' && myKitchens.length === 0}
+    {:else if viewMode === 'households' && myKitchens.length === 0}
       <!-- ourfamily fork -->
       <div class="state empty" in:fade={{ duration: 120 }}>
-        <span class="material-symbols-rounded empty-icon">cooking</span>
-        <h2>You're not in a kitchen yet</h2>
-        <p>A kitchen groups a household's recipes. Make one, or ask someone to add you to theirs.</p>
-        <button class="btn btn-primary" on:click={() => push('/settings/kitchens')}>Set up a kitchen</button>
+        <span class="material-symbols-rounded empty-icon">home</span>
+        <h2>No households yet</h2>
+        {#if $isGuest}
+          <p>Households group a family's recipes, pantry and shopping list. Sign in to start one.</p>
+        {:else}
+          <p>Households group a family's recipes, pantry and shopping list. Start one, or join one.</p>
+          <button class="btn btn-primary" on:click={() => push('/settings/households')}>Households</button>
+        {/if}
       </div>
-    {:else if viewMode === 'kitchens' && filtered.length === 0 && !query && !favoritesOnly && !activeCategorySlug}
+    {:else if viewMode === 'households' && filtered.length === 0 && !query && !favoritesOnly && !activeCategorySlug}
       <!-- ourfamily fork -->
       <div class="state empty" in:fade={{ duration: 120 }}>
         <span class="material-symbols-rounded empty-icon">menu_book</span>
         <h2>No recipes in {activeKitchen?.name} yet</h2>
-        <p>Recipes added by its members ({(activeKitchen?.members || []).map(m => m.name).join(', ')}) show up here.</p>
+        <p>Pick {activeKitchen?.name} under Household when you add a recipe, or on any recipe's page.</p>
       </div>
     {:else if recipes.length === 0 && !($mixSharedIntoRecipes && sharedRecipes.length > 0)}
       <div class="state empty" in:fade={{ duration: 120 }}>

@@ -17,6 +17,7 @@
 //
 // Kept in its own files so `git merge upstream/main` rarely conflicts.
 import db from '../db.js';
+import { applyHouseholdSchema, systemAccountIds } from './households.js';
 
 export function communityMode() {
   const v = String(process.env.COMMUNITY_MODE ?? 'true').trim().toLowerCase();
@@ -113,13 +114,25 @@ export function cleanGuestName(raw) {
  *  visitor can't sign things as someone who has an account here. */
 export function nameBelongsToAccount(name) {
   const n = name.toLowerCase();
+  const system = systemAccountIds();
   return db.prepare(
-    `SELECT 1 FROM users
-      WHERE id IS NOT ?
-        AND (lower(full_name) = ? OR lower(nickname) = ? OR lower(username) = ?
-             OR lower(substr(username, 1, instr(username || '@', '@') - 1)) = ?)
-      LIMIT 1`
-  ).get(_guestId, n, n, n, n) != null;
+    `SELECT id FROM users
+      WHERE lower(full_name) = ? OR lower(nickname) = ? OR lower(username) = ?
+         OR lower(substr(username, 1, instr(username || '@', '@') - 1)) = ?`
+  ).all(n, n, n, n).some(r => !system.has(r.id));
+}
+
+// Lists of people (user management, share and member pickers) leave out
+// the guest account and the household accounts: they aren't people.
+const PEOPLE_LISTS = new Set(['/api/auth/users', '/api/auth/users/list', '/api/recipes/peers']);
+function _hideSystemAccounts(req, res) {
+  if (req.method !== 'GET' || !PEOPLE_LISTS.has(req.path)) return;
+  const json = res.json.bind(res);
+  res.json = body => {
+    if (!Array.isArray(body)) return json(body);
+    const system = systemAccountIds();
+    return json(body.filter(u => !system.has(u?.id)));
+  };
 }
 
 function _guestName(req) {
@@ -140,6 +153,7 @@ const NEEDS_NAME = [
  *  Authorization header, so the Android app and API tokens are left
  *  alone) is signed in as the guest account, under the visitor's name. */
 export function communityGuest(req, res, next) {
+  if (communityMode()) _hideSystemAccounts(req, res);
   if (!communityMode() || req.user || req.authVia || req.headers.authorization) return next();
   if (!req.path.startsWith('/api/')) return next();
   if (req.path.startsWith('/api/auth/') && !GUEST_AUTH_PATHS.has(req.path)) return next();
@@ -175,6 +189,7 @@ export function communityGuest(req, res, next) {
 // later. The guest account's recipes always stay public: every guest is
 // the same account, so hiding one would only hide it from members.
 export function applyCommunitySchema() {
+  applyHouseholdSchema();
   // Who logged a cook under the guest account (the cook log reads names
   // from the account, which is the same for every visitor).
   db.exec(`

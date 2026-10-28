@@ -8,6 +8,7 @@
 import { writable, get } from 'svelte/store';
 import { communityGuest, currentUser } from '../stores/auth.js';
 import { apiUrl } from './platform.js';
+import { newRecipeHousehold } from '../stores/households.js';
 
 /** The prompt's state: null when closed, else { reason } while open. */
 export const namePrompt = writable(null);
@@ -61,6 +62,17 @@ const NEEDS_NAME = [
   /^\/api\/cook-diary\/?$/,
 ];
 
+// Requests that create recipes: they carry the household picked in the
+// editor (stores/households.js), and the server files the new recipe there.
+const CREATES_RECIPES = /^\/api\/recipes(\/(scrape|import|import-zip\/commit|extract-and-parse|bulk-commit))?\/?$/;
+function _householdFor(method, url) {
+  if (String(method || 'GET').toUpperCase() !== 'POST') return null;
+  const kid = get(newRecipeHousehold);
+  if (!kid) return null;
+  try { return CREATES_RECIPES.test(new URL(String(url), window.location.href).pathname) ? kid : null; }
+  catch { return null; }
+}
+
 function _needsName(method, url) {
   if (String(method || 'GET').toUpperCase() !== 'POST') return false;
   if (!get(communityGuest) || get(currentUser)?.guest_name) return false;
@@ -85,6 +97,8 @@ export function installGuestNameFetch() {
     return xhrOpen.call(this, method, url, ...rest);
   };
   XMLHttpRequest.prototype.send = function (body) {
+    const kid = _householdFor(this._ofMethod, this._ofUrl);
+    if (kid) this.setRequestHeader('X-Ourfamily-Household', String(kid));
     if (!_needsName(this._ofMethod, this._ofUrl)) return xhrSend.call(this, body);
     askGuestName().then(() => xhrSend.call(this, body));
   };
@@ -93,6 +107,15 @@ export function installGuestNameFetch() {
     const method = init?.method || (input instanceof Request ? input.method : 'GET');
     const url = input instanceof Request ? input.url : input;
     if (_needsName(method, url)) await askGuestName();
+    const kid = _householdFor(method, url);
+    if (kid) {
+      if (input instanceof Request) input.headers.set('X-Ourfamily-Household', String(kid));
+      else {
+        const headers = new Headers(init?.headers || {});
+        headers.set('X-Ourfamily-Household', String(kid));
+        init = { ...(init || {}), headers };
+      }
+    }
     // A Request's body can only be read once; keep a copy for the retry.
     const retryInput = input instanceof Request ? input.clone() : input;
     const res = await orig(input, init);

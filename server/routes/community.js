@@ -11,6 +11,8 @@ import { Router } from 'express';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { userMgmtActive } from '../middleware/auth.js';
+import householdRoutes from './households.js';
+import { systemAccountIds } from '../lib/households.js';
 import {
   communityMode, cleanGuestName, nameBelongsToAccount,
   GUEST_NAME_COOKIE, GUEST_NAME_COOKIE_OPTS,
@@ -29,6 +31,9 @@ router.use((req, res, next) => {
   if (!communityMode() || !userMgmtActive()) return next('router');
   next();
 });
+
+// Households: pantry and shopping per household, recipes assigned to one.
+router.use(householdRoutes);
 
 function authorNames() {
   const map = new Map();
@@ -131,10 +136,10 @@ router.get('/community/names', wrap((req, res) => {
          LEFT JOIN ourfamily_cook_names n ON n.cook_id = cd.id
         WHERE cd.user_id = ? AND cd.deleted_at IS NULL GROUP BY COALESCE(n.name, 'guest')`).all(g), 'cooks');
   }
+  const system = systemAccountIds();
   const accounts = db.prepare(
-    `SELECT id, COALESCE(full_name, username) AS name FROM users
-      WHERE id IS NOT ? ORDER BY name COLLATE NOCASE`
-  ).all(g);
+    `SELECT id, COALESCE(full_name, username) AS name FROM users ORDER BY name COLLATE NOCASE`
+  ).all().filter(a => !system.has(a.id));
   const names = [...counts.values()].sort((a, b) =>
     (a.name === 'guest') - (b.name === 'guest') || a.name.localeCompare(b.name));
   res.json({ names, accounts });
@@ -146,7 +151,7 @@ router.post('/community/names/merge', wrap((req, res) => {
   const to = Number(req.body?.user_id);
   if (g == null || !name) return res.status(400).json({ error: 'Pick a name' });
   const target = db.prepare(`SELECT id, username FROM users WHERE id = ?`).get(to);
-  if (!target || target.id === g) return res.status(400).json({ error: 'Pick an account' });
+  if (!target || systemAccountIds().has(target.id)) return res.status(400).json({ error: 'Pick an account' });
 
   const moved = db.transaction(() => {
     // Categories are per account: point each recipe at the account's
@@ -240,29 +245,6 @@ router.put('/community/recipes/:id/hidden', wrap((req, res) => {
   const visibility = req.body?.hidden ? 'private' : 'group';
   db.prepare(`UPDATE recipes SET visibility = ?, updated_at = datetime('now') WHERE id = ?`).run(visibility, id);
   res.json({ id, visibility, hidden: visibility !== 'group' });
-}));
-
-// ── Kitchens (households) as a side tab ────────────────────────────────
-// Kitchens stay as upstream has them (Settings → Kitchens, roles, Sous
-// Chef editing). Since every recipe is already visible, the Recipes page
-// uses them as a filter: its Kitchens tab shows recipes by the members of
-// a kitchen you're in. One call with the member ids, instead of one
-// /kitchens/:id/members call per kitchen.
-router.get('/community/kitchens', wrap((req, res) => {
-  if (!req.user || req.user.ourfamilyGuest) return res.json([]);
-  const kitchens = db.prepare(
-    `SELECT k.id, k.name, m.role
-       FROM kitchens k
-       JOIN kitchen_members m ON m.kitchen_id = k.id
-      WHERE m.user_id = ?
-      ORDER BY k.name COLLATE NOCASE ASC`
-  ).all(req.user.id);
-  const members = db.prepare(
-    `SELECT km.user_id, COALESCE(u.full_name, u.username) AS name
-       FROM kitchen_members km JOIN users u ON u.id = km.user_id
-      WHERE km.kitchen_id = ?`
-  );
-  res.json(kitchens.map(k => ({ ...k, members: members.all(k.id) })));
 }));
 
 export default router;

@@ -44,6 +44,7 @@
     return formatted || qty;
   }
 
+  import HouseholdField from '../components/community/HouseholdField.svelte'; // ourfamily fork
   export let params = {};
 
   $: id = params.id ? parseInt(params.id, 10) : null;
@@ -1010,6 +1011,7 @@
             <span class="field-label">{$_('editor.name_required')}</span>
             <input class="input" type="text" bind:value={name} placeholder={$_('recipe_editor_ct.name_ph')} />
           </label>
+          <HouseholdField recipeId={isEdit ? id : null} /><!-- ourfamily fork -->
 
           <label class="field">
             <span class="field-label">{$_('editor.description')}</span>

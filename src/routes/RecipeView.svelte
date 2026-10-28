@@ -40,6 +40,7 @@
   import { cookModeActive } from '../stores/cookMode.js';
   import { currentUser } from '../stores/auth.js';
   import { communityMode, isGuest } from '../stores/community.js'; // ourfamily fork
+  import RecipeHousehold from '../components/community/RecipeHousehold.svelte'; // ourfamily fork
   import { onDestroy, onMount, tick } from 'svelte';
   import { fold } from '../lib/fold.js';
   import { get } from 'svelte/store';
@@ -1190,6 +1191,7 @@
                 </a>
               </span>
             {/if}
+            <RecipeHousehold {recipe} /><!-- ourfamily fork -->
             {#if recipe.last_edited_by_name}
               <span class="dot">·</span>
               <span title={recipe.updated_at || ''}>

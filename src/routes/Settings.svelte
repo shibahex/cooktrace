@@ -49,6 +49,8 @@
   import SettingsImport          from '../components/settings/SettingsImport.svelte';
   import SettingsKitchens        from '../components/settings/SettingsKitchens.svelte';
   import NamesMerge              from '../components/community/NamesMerge.svelte'; // ourfamily fork
+  import SettingsHouseholds      from '../components/community/SettingsHouseholds.svelte';  // ourfamily fork
+  import SettingsPermissions     from '../components/community/SettingsPermissions.svelte'; // ourfamily fork
   import { communityMode }       from '../stores/community.js';                   // ourfamily fork
   import SettingsUpdates         from '../components/settings/SettingsUpdates.svelte';
   import SettingsDiagnostics     from '../components/settings/SettingsDiagnostics.svelte';
@@ -186,6 +188,8 @@
     import:        { titleKey: 'settings.import.section',            icon: 'import_export' },
     kitchens:      { titleKey: 'settings.kitchens.section',          icon: 'group' },
     names:         { titleKey: 'settings.names.section',             icon: 'badge' }, // ourfamily fork
+    households:    { titleKey: 'settings.households.section',        icon: 'home' },  // ourfamily fork
+    permissions:   { titleKey: 'settings.permissions.section',       icon: 'admin_panel_settings' }, // ourfamily fork
     users:         { titleKey: 'settings.users.section',             icon: 'group' },
     auth:          { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
     apitokens:     { titleKey: 'settings.apitokens.section',         icon: 'key' },
@@ -219,6 +223,8 @@
     import:        SettingsImport,
     kitchens:      SettingsKitchens,
     names:         NamesMerge, // ourfamily fork
+    households:    SettingsHouseholds,  // ourfamily fork
+    permissions:   SettingsPermissions, // ourfamily fork
     users:         SettingsUserManagement,
     auth:          SettingsAuth,
     apitokens:     SettingsApiTokens,
@@ -247,6 +253,8 @@
     email:         ['email','smtp','mail','password reset','invite','from address','tls','outgoing','send test','test email','recipient','test recipient','connection status','change password','change smtp'],
     backup:        ['backup','export','import','restore','json','full backup','reset','danger zone'],
     import:        ['import','mealie','tandoor','paprika','recipe import','migration','migrate','transfer','bulk','zip','from another app'],
+    households:    ['households','household','family','pantry','shopping','join','members','invite','kitchens','kitchen'], // ourfamily fork
+    permissions:   ['permissions','guests','guest access','households','invite only','admin'], // ourfamily fork
     names:         ['names','name','visitors','guests','guest','merge','merge names','accounts','who added'], // ourfamily fork
     kitchens:      ['kitchens','kitchen','household','household members','share','sharing','family','roommates','crew','group','members','auto-share','auto share','auto sharing','share recipes','share cookbook','cookbook sharing','via kitchen'],
     users:         ['users','user management','accounts','login','admin','register','invite'],
@@ -527,11 +535,19 @@
     <span>{$_('settings.import.section')}</span>
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
+  {#if !$communityMode}<!-- ourfamily fork: Households replace Kitchens in community mode -->
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'kitchens')} class:active={currentSection === 'kitchens'} aria-current={currentSection === 'kitchens' ? 'page' : undefined} on:click={() => toggleSection('kitchens')}>
     <span class="material-symbols-rounded si">cooking</span>
     <span>{$_('settings.kitchens.section')}</span>
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
+  {:else}
+  <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'households')} class:active={currentSection === 'households'} aria-current={currentSection === 'households' ? 'page' : undefined} on:click={() => toggleSection('households')}>
+    <span class="material-symbols-rounded si">home</span>
+    <span>{$_('settings.households.section')}</span>
+    <span class="material-symbols-rounded chevron">expand_more</span>
+  </button>
+  {/if}
   {#if $communityMode}<!-- ourfamily fork: merge visitor names into accounts -->
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'names')} class:active={currentSection === 'names'} aria-current={currentSection === 'names' ? 'page' : undefined} on:click={() => toggleSection('names')}>
     <span class="material-symbols-rounded si">badge</span>
@@ -552,6 +568,13 @@
 
   {#if showAdminGroup}
     <p class="settings-group-label">{$_('settings_page.group.admin')}</p>
+    {#if $communityMode && $userMgmtActive && $currentUser?.role === 'admin'}<!-- ourfamily fork -->
+    <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'permissions')} class:active={currentSection === 'permissions'} aria-current={currentSection === 'permissions' ? 'page' : undefined} on:click={() => toggleSection('permissions')}>
+      <span class="material-symbols-rounded si">admin_panel_settings</span>
+      <span>{$_('settings.permissions.section')}</span>
+      <span class="material-symbols-rounded chevron">expand_more</span>
+    </button>
+    {/if}
     <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'users')} class:active={currentSection === 'users'} aria-current={currentSection === 'users' ? 'page' : undefined} on:click={() => toggleSection('users')}>
       <span class="material-symbols-rounded si">group</span>
       <span>{$_('settings.users.section')}</span>
