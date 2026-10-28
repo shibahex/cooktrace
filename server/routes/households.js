@@ -8,6 +8,7 @@ import {
   activeHousehold, canUseHousehold, canManageHousehold, memberRole,
   householdAccountId, householdSettings, saveHouseholdSettings,
   guestHouseholdAccess, setGuestHouseholdAccess, systemAccountIds,
+  householdManagers, setHouseholdManagers, canCreateHousehold,
   householdStockNames, matchByName,
 } from '../lib/households.js';
 
@@ -125,6 +126,8 @@ router.get('/community/households', wrap((req, res) => {
   res.json({
     households,
     guest_access: guestHouseholdAccess(),
+    managers: householdManagers(),
+    can_create: canCreateHousehold(me),
     is_admin: isAdmin(req),
     is_guest: isGuest(req),
     active_id: activeHousehold(req),
@@ -137,16 +140,18 @@ function _slugify(s) {
 }
 
 router.post('/community/households', wrap((req, res) => {
-  if (!req.user || isGuest(req)) return res.status(403).json({ error: 'Sign in to start a household' });
+  if (!canCreateHousehold(req.user)) return res.status(403).json({ error: 'Sign in to start a household' });
   const name = String(req.body?.name || '').trim();
   if (!name || name.length > 80) return res.status(400).json({ error: 'Name required (up to 80 characters)' });
   const base = _slugify(name);
   let slug = base;
   for (let i = 2; db.prepare(`SELECT 1 FROM kitchens WHERE slug = ?`).get(slug); i++) slug = `${base}-${i}`;
+  // A guest starts it without an owner (every visitor is the same account).
+  const owner = isGuest(req) ? null : req.user.id;
   const id = db.transaction(() => {
     const kid = Number(db.prepare(`INSERT INTO kitchens (name, slug, owner_user_id) VALUES (?, ?, ?)`)
-      .run(name, slug, req.user.id).lastInsertRowid);
-    db.prepare(`INSERT INTO kitchen_members (kitchen_id, user_id, role) VALUES (?, ?, 'owner')`).run(kid, req.user.id);
+      .run(name, slug, owner).lastInsertRowid);
+    if (owner != null) db.prepare(`INSERT INTO kitchen_members (kitchen_id, user_id, role) VALUES (?, ?, 'owner')`).run(kid, owner);
     saveHouseholdSettings(kid, {
       join_policy: req.body?.join_policy,
       guests: req.body?.guests === undefined ? true : !!req.body.guests,
@@ -206,7 +211,7 @@ router.post('/community/households/:id/leave', wrap((req, res) => {
 
 // People who could be added (accounts, not the guest or household ones).
 router.get('/community/people', wrap((req, res) => {
-  if (!req.user || isGuest(req)) return res.json([]);
+  if (!req.user || (isGuest(req) && householdManagers() !== 'anyone')) return res.json([]);
   const system = systemAccountIds();
   res.json(db.prepare(`SELECT id, full_name, username FROM users ORDER BY COALESCE(full_name, username) COLLATE NOCASE`)
     .all().filter(u => !system.has(u.id)).map(u => ({ id: u.id, name: personName(u) })));
@@ -236,7 +241,7 @@ router.delete('/community/households/:id/members/:uid', wrap((req, res) => {
 router.put('/community/households/:id/owner', wrap((req, res) => {
   const id = Number(req.params.id);
   const uid = Number(req.body?.user_id);
-  if (!canManageHousehold(req.user, id)) return res.status(403).json({ error: 'Only its owner or an admin can do that' });
+  if (!canManageHousehold(req.user, id)) return res.status(403).json({ error: 'Only its owner or an admin can do that here' });
   if (!memberRole(id, uid)) return res.status(400).json({ error: 'Add them to the household first' });
   db.transaction(() => {
     db.prepare(`UPDATE kitchen_members SET role = 'member' WHERE kitchen_id = ? AND role = 'owner'`).run(id);
@@ -279,12 +284,13 @@ router.post('/community/households/:id/move-personal', wrap((req, res) => {
 
 // ── Admin: who can get into households ─────────────────────────────────
 router.get('/community/permissions', wrap((req, res) => {
-  res.json({ guest_access: guestHouseholdAccess() });
+  res.json({ guest_access: guestHouseholdAccess(), managers: householdManagers() });
 }));
 router.put('/community/permissions', wrap((req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Admins only' });
   if (req.body?.guest_access !== undefined) setGuestHouseholdAccess(req.body.guest_access);
-  res.json({ guest_access: guestHouseholdAccess() });
+  if (req.body?.managers !== undefined) setHouseholdManagers(req.body.managers);
+  res.json({ guest_access: guestHouseholdAccess(), managers: householdManagers() });
 }));
 
 // ── A recipe's household ───────────────────────────────────────────────

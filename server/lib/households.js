@@ -54,6 +54,25 @@ export function setGuestHouseholdAccess(v) {
     .run(GUEST_ACCESS_KEY, v === 'invited' ? 'invited' : 'all');
 }
 
+// Who can manage households (members, settings, start new ones):
+// 'anyone' (default, guests too) or 'owners' (each household's owner, and admins).
+const MANAGERS_KEY = 'ourfamily_household_managers';
+export function householdManagers() {
+  const v = db.prepare(`SELECT value FROM app_config WHERE key = ?`).get(MANAGERS_KEY)?.value;
+  return v === 'owners' ? 'owners' : 'anyone';
+}
+export function setHouseholdManagers(v) {
+  db.prepare(`INSERT INTO app_config (key, value) VALUES (?, ?)
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(MANAGERS_KEY, v === 'owners' ? 'owners' : 'anyone');
+}
+
+/** Start a new household. */
+export function canCreateHousehold(user) {
+  if (!user) return false;
+  return householdManagers() === 'anyone' || !user.ourfamilyGuest;
+}
+
 export function householdSettings(kid) {
   const row = db.prepare(`SELECT join_policy, guests FROM ourfamily_households WHERE kitchen_id = ?`).get(kid);
   return { join_policy: row?.join_policy === 'invite' ? 'invite' : 'open', guests: row ? !!row.guests : true };
@@ -85,7 +104,9 @@ export function canUseHousehold(user, kid) {
 
 /** Change its settings, members, or delete it. */
 export function canManageHousehold(user, kid) {
-  if (!user || user.ourfamilyGuest) return false;
+  if (!user) return false;
+  if (householdManagers() === 'anyone') return true;
+  if (user.ourfamilyGuest) return false;
   return user.role === 'admin' || memberRole(kid, user.id) === 'owner';
 }
 

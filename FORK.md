@@ -47,18 +47,22 @@ plus a "community mode" for a single family recipe box.
   household you're in (tap it to switch); with none picked they show the
   households to pick, join or start. "Move" offers to bring what you had
   in your own pantry and list from before into the household.
-- **Joining.** Each household is either open (anyone with an account can
-  join) or invite only (its owner or an admin adds people). Settings →
-  Households lists them: members, add or remove people, make someone the
-  owner, who can join, "Guests welcome", rename, leave, delete.
-- **Guests and households.** Settings → Permissions (admins): guests can
+- **Anyone can arrange households.** By default everyone, guests
+  included, can start households and manage any of them in Settings →
+  Households: add or remove people, make someone the owner, who can join
+  by themselves, "Guests welcome", rename, delete. People with an account
+  can also join open households themselves, and leave. An admin can limit
+  managing to each household's owner (and admins) in Settings →
+  Permissions. A household a guest starts has no owner.
+- **Guests and households.** Settings → Permissions (admins) also sets
+  whether guests can
   use every household (default, as open as possible), or only households
   that tick "Guests welcome". Guests pick a household the same way.
 - **Recipes can belong to a household.** The editor has a Household
   field (it starts on the household you're in), and a recipe's byline
   shows its household; its owner can change it there. The Recipes page
-  has a Households tab after Cookbooks that lists a household's recipes
-  (with a picker if there are several). Recipes stay visible to everyone.
+  has a Households tab after Cookbooks: a card per household (recipes,
+  people) and a Manage card, then that household's recipes. Recipes stay visible to everyone.
 - **"In stock" counts use the household's pantry**, matching ingredient
   names ("flour" covers "bread flour").
 
@@ -99,6 +103,7 @@ Most of the code lives in new files, so upstream merges rarely conflict:
 | `src/stores/households.js` | Households list, the picked household (cookie), and the household for a new recipe. |
 | `src/components/community/HouseholdScope.svelte` | Wraps the Pantry and Shopping routes: the household switcher, or the picker when none is picked. |
 | `src/components/community/HouseholdList.svelte` | Pick, join, start; with `manage`, members and settings. |
+| `src/components/community/HouseholdCards.svelte` | The household cards on the Recipes page's Households tab. |
 | `src/components/community/{HouseholdField,RecipeHousehold}.svelte` | Household in the recipe editor, and in a recipe's byline. |
 | `src/components/community/{SettingsHouseholds,SettingsPermissions}.svelte` | Settings → Households (instead of Kitchens) and Settings → Permissions. |
 

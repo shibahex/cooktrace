@@ -7,18 +7,23 @@
   import { householdsState, loadHouseholds } from '../../stores/households.js';
 
   let guestAccess = 'all';
+  let managers = 'anyone';
   let saving = false;
 
   onMount(async () => {
     await loadHouseholds();
     guestAccess = $householdsState.guest_access || 'all';
+    managers = $householdsState.managers || 'anyone';
   });
 
-  async function setAccess(v) {
+  async function setAccess(v) { return savePerms({ guest_access: v }); }
+  async function setManagers(v) { return savePerms({ managers: v }); }
+  async function savePerms(body) {
     saving = true;
     try {
-      const r = await NtApi.put('/api/community/permissions', { guest_access: v });
+      const r = await NtApi.put('/api/community/permissions', body);
       guestAccess = r.guest_access;
+      managers = r.managers;
       showSuccess('Saved');
       await loadHouseholds();
     } catch (e) { showError(e.message || 'Could not save'); }
@@ -40,6 +45,23 @@
 </script>
 
 <div class="perm">
+  <section>
+    <h4>Who can manage households</h4>
+    <p class="muted">Managing means adding and removing people, changing settings, renaming, deleting, and starting new households.</p>
+    <label class="opt">
+      <input type="radio" name="managers" value="anyone" checked={managers === 'anyone'} disabled={saving}
+        on:change={() => setManagers('anyone')} />
+      <span><strong>Anyone</strong><br />
+        <span class="muted">Everyone, guests included, can arrange any household.</span></span>
+    </label>
+    <label class="opt">
+      <input type="radio" name="managers" value="owners" checked={managers === 'owners'} disabled={saving}
+        on:change={() => setManagers('owners')} />
+      <span><strong>Owners and admins</strong><br />
+        <span class="muted">Each household's owner manages it; admins manage all. People with an account can still start their own.</span></span>
+    </label>
+  </section>
+
   <section>
     <h4>Guests in households</h4>
     <p class="muted">Guests are people using the app without an account. They can always browse and add recipes.</p>

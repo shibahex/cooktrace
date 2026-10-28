@@ -17,6 +17,7 @@
   import { derived } from 'svelte/store';
   import { communityMode, isGuest } from '../stores/community.js';
   import { householdsState, activeHouseholdId, loadHouseholds } from '../stores/households.js'; // ourfamily fork
+  import HouseholdCards from '../components/community/HouseholdCards.svelte'; // ourfamily fork
   const mixSharedIntoRecipes = derived([_mixSharedSetting, communityMode], ([a, b]) => a || b);
   import ActionSheet from '../components/ui/ActionSheet.svelte';
   import ImportFromFileDialog from '../components/recipe/ImportFromFileDialog.svelte';
@@ -1318,7 +1319,7 @@
         </button>
         {#if $communityMode}
         <!-- ourfamily fork: Households sit last, the main list stays first. -->
-        <button class="vt-btn" class:active={viewMode === 'households'}
+        <button class="vt-btn vt-households" class:active={viewMode === 'households'}
           bind:this={vtBtnKitchens}
           on:click={() => setViewMode('households')}
           aria-pressed={viewMode === 'households'}>
@@ -1330,15 +1331,10 @@
       </div>
     {/if}
 
-    {#if viewMode === 'households' && myKitchens.length > 1}
+    {#if viewMode === 'households' && myKitchens.length > 0}
       <!-- ourfamily fork: which household's recipes to show. -->
-      <div class="cat-filter kitchen-picker" role="radiogroup" aria-label="Household">
-        {#each myKitchens as k (k.id)}
-          <button class="cat-chip" class:active={activeKitchen?.id === k.id}
-            aria-pressed={activeKitchen?.id === k.id}
-            on:click={() => activeKitchenId = k.id}>{k.name}</button>
-        {/each}
-      </div>
+      <HouseholdCards households={myKitchens} selectedId={activeKitchen?.id}
+        on:select={e => (activeKitchenId = e.detail)} />
     {/if}
     {#if (viewMode === 'recipes' || (viewMode === 'households' && myKitchens.length > 0)) && (recipes.length > 0 || ($mixSharedIntoRecipes && sharedRecipes.length > 0))}
     <div class="sticky-controls">
@@ -1597,11 +1593,11 @@
       <div class="state empty" in:fade={{ duration: 120 }}>
         <span class="material-symbols-rounded empty-icon">home</span>
         <h2>No households yet</h2>
-        {#if $isGuest}
-          <p>Households group a family's recipes, pantry and shopping list. Sign in to start one.</p>
+        <p>Households group a family's recipes, pantry and shopping list.</p>
+        {#if $householdsState.can_create}
+          <button class="btn btn-primary" on:click={() => push('/settings/households')}>Start a household</button>
         {:else}
-          <p>Households group a family's recipes, pantry and shopping list. Start one, or join one.</p>
-          <button class="btn btn-primary" on:click={() => push('/settings/households')}>Households</button>
+          <p>Sign in to start one.</p>
         {/if}
       </div>
     {:else if viewMode === 'households' && filtered.length === 0 && !query && !favoritesOnly && !activeCategorySlug}
@@ -1934,8 +1930,8 @@
 
   /* Category filter chips — horizontal scroll on overflow so the row
      never breaks mid-name. Active chip gets the category's own color. */
-  /* ourfamily fork */
-  .kitchen-picker { margin-bottom: 12px; }
+  /* ourfamily fork: the Households tab stands out from the others */
+  .vt-btn.vt-households .material-symbols-rounded { color: var(--accent); }
   .cat-filter {
     display: flex;
     gap: 8px;
