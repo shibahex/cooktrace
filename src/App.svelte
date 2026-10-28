@@ -16,6 +16,9 @@
   import CookingNow from './components/recipe/CookingNow.svelte';
   import { cookModeActive } from './stores/cookMode.js';
   import Toast     from './components/ui/Toast.svelte';
+  import GuestNamePrompt from './components/community/GuestNamePrompt.svelte'; // ourfamily fork
+  import { installGuestNameFetch } from './lib/community-name.js';            // ourfamily fork
+  if (!isNative) installGuestNameFetch();                                       // ourfamily fork
   import ConfirmDialogMount from './components/ui/ConfirmDialogMount.svelte';
   import { DB }    from './lib/db.js';
   import { navStyle, applyAccentColor, accentColor, applyAppearance, appearance, disableAnimations, sidebarPersistent, language, pageBanners, bannerStyle, bannerAnimation, forceMobileLayout, reloadSettingStores } from './stores/settings.js';
@@ -176,6 +179,7 @@
   import CookDiary    from './routes/CookDiary.svelte';
   import Shopping     from './routes/Shopping.svelte';
   import Login          from './routes/Login.svelte';
+  import CommunityNames from './routes/CommunityNames.svelte'; // ourfamily fork
   import Trace      from './components/ai/Trace.svelte';
 
   // Lazy-loaded routes. svelte-spa-router accepts a `wrap()` async
@@ -212,6 +216,8 @@
     '/manage/:section':    Manage,
     '/cookbooks/:id':      CookbookView,
     '/r/:token':           PublicRecipe,
+    '/login':              Login,        // ourfamily fork: signing in is optional, so it's a page
+    '/names':              CommunityNames, // ourfamily fork: merge visitor names into accounts
     '/settings':           Settings,
     '/settings/:section':  Settings,
     '/wizard':             Wizard,
@@ -781,6 +787,7 @@
 
 {#if needsLogin}<Toast />{/if}
 <ConfirmDialogMount />
+<GuestNamePrompt /><!-- ourfamily fork: asks a visitor for their name -->
 
 <style>
   .account-check-error {

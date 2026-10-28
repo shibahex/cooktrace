@@ -163,7 +163,7 @@
       // default first impression. Existing users (who never re-run the
       // wizard) keep whatever bannerStyle / legacy pageBanners they had
       // — the migration in settings.js handles that path.
-      bannerStyle: 'gradient',
+      bannerStyle: 'off', // ourfamily fork: plain header by default (was 'gradient')
     };
     await bulkSet(settingsToSave);
     if (displayName) DB.setSetting('localUserName', displayName);

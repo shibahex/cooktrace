@@ -10,6 +10,8 @@
   import { syncState } from '../../lib/sync.js';
   import { updateAvailable } from '../../lib/updates.js';
   import { pwaUpdateReady } from '../../lib/pwa-update.js';
+  import { isGuest, communityMode } from '../../stores/community.js'; // ourfamily fork
+  import { askGuestName } from '../../lib/community-name.js'; // ourfamily fork
 
   export let open = false;
   export let persistent = false;
@@ -39,6 +41,11 @@
     { path: '/manage',   icon: 'tune',          label: 'Manage'   },
     { path: '/settings', icon: 'settings',      label: 'Settings' },
   ];
+
+  // ourfamily fork: Names (merge visitor names into accounts) before Settings.
+  $: shownNavItems = $communityMode
+    ? [...navItems.slice(0, -1), { path: '/names', icon: 'badge', label: 'Names' }, navItems[navItems.length - 1]]
+    : navItems;
 
   function go(path) {
     push(path);
@@ -120,7 +127,7 @@
 
     <!-- Nav items -->
     <nav class="sidebar-nav">
-      {#each navItems as item}
+      {#each shownNavItems as item}<!-- ourfamily fork -->
         <button
           class="sidebar-item"
           class:active={isTabActive(item.path)}
@@ -147,7 +154,7 @@
           <span class="sync-row-text">{syncText}</span>
         </div>
       {/if}
-      {#if $userMgmtActive && $currentUser}
+      {#if $userMgmtActive && $currentUser && !$isGuest}<!-- ourfamily fork: not the shared guest -->
         <div class="sidebar-user">
           <div class="user-avatar">
             {#if $currentUser.avatar_url}
@@ -164,6 +171,21 @@
             <span class="material-symbols-rounded">logout</span>
           </button>
         </div>
+      {:else if $isGuest}
+        <!-- ourfamily fork: using the app without an account, under a name. -->
+        <button class="btn btn-ghost" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px"
+          on:click={() => askGuestName($currentUser?.guest_name ? 'change' : 'set')}
+          title={$currentUser?.guest_name ? 'Change your name' : 'Set your name'}>
+          <span class="material-symbols-rounded">badge</span>
+          <span>{$currentUser?.guest_name || 'Set your name'}</span>
+          {#if $currentUser?.guest_name}<span class="material-symbols-rounded" style="font-size:16px;opacity:.6">edit</span>{/if}
+        </button>
+        <button class="btn btn-primary" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px"
+          on:click={() => go('/login')}>
+          <span class="material-symbols-rounded">login</span>
+          <span>Sign in</span>
+        </button>
+        <span class="sidebar-version">{APP_VERSION}</span>
       {:else}
         <span class="sidebar-version">{APP_VERSION}</span>
       {/if}

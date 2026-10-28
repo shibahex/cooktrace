@@ -38,6 +38,8 @@ import apiTokensRoutes    from './routes/api-tokens.js';
 import webhooksRoutes     from './routes/webhooks.js';
 import mcpRoutes          from './routes/mcp.js';
 import v1ApiRoutes        from './routes/api/v1/index.js';
+import communityRoutes    from './routes/community.js';    // ourfamily fork
+import { applyCommunitySchema, communityGuest } from './lib/community.js'; // ourfamily fork
 import { logger }   from './logger.js';
 import { authenticate, userMgmtActive } from './middleware/auth.js';
 import { csrfProtect } from './middleware/csrf.js';
@@ -55,6 +57,7 @@ import { publicPageHtml } from './lib/public-recipe-meta.js';
 seedSmtpFromEnv();
 seedAiFromEnv();
 seedOidcFromEnv();
+applyCommunitySchema(); // ourfamily fork
 
 // Update checks: existing instances keep checking, fresh ones wait for setup to ask.
 initUpdateCheckSetting();
@@ -161,6 +164,7 @@ router.use((req, res, next) => {
   if (req.user?.role === 'admin') rememberAdminOrigin(req);
   next();
 });
+router.use(communityGuest); // ourfamily fork: no session = the shared guest account
 router.use(csrfProtect);   // CSRF protection for cookie-based sessions
 
 // ── Request logging ────────────────────────────────────────────────────────
@@ -217,6 +221,8 @@ router.use('/api/auth',   authRoutes);
 // the router; setup-required gate blocks it until a user exists, which is
 // the right ordering (no admin UI before the first user).
 router.use('/api/admin/oidc', oidcAdminRoutes);
+// ourfamily fork: merged recipe list, hiding recipes, kitchens tab.
+router.use('/api',              communityRoutes);
 // proxy already registered before auth (line 64)
 router.use('/api/data',         dataRoutes);
 router.use('/api/upload',       uploadRoutes);

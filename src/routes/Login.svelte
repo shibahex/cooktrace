@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { currentUser, userMgmtActive, loadAuthState, signInProblem } from '../stores/auth.js';
+  import { communityMode } from '../stores/auth.js'; // ourfamily fork
   import { cookieBlockedByHttp, droppedCookieReason } from '../lib/cookie-check.js';
   import CookieWarning from '../components/ui/CookieWarning.svelte';
   import { loadServerSettings } from '../stores/settings.js';
@@ -246,6 +247,15 @@
         </div>
       {:else if !oidcProviders.length}
         <p class="text-3 text-sm" style="text-align:center">{$_('login.no_signin_methods')}</p>
+      {/if}
+
+      <!-- ourfamily fork: signing in is optional. -->
+      {#if $communityMode}
+        <button class="btn btn-ghost w-full" style="display:flex;align-items:center;justify-content:center;gap:8px"
+          on:click={() => push('/recipes')}>
+          <span class="material-symbols-rounded">menu_book</span>
+          <span>Continue without signing in</span>
+        </button>
       {/if}
 
       <!-- Locked out recovery -->

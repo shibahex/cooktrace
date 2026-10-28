@@ -19,6 +19,10 @@ export const userMgmtActive = writable(false);
 
 /** True when the server has no users yet — PWA must show setup screen */
 export const setupRequired = writable(false);
+
+/** ourfamily fork: open use without an account (stores/community.js) */
+export const communityMode = writable(false);
+export const communityGuest = writable(false); // ourfamily fork: signed in as the shared guest
 // Why the last sign-in didn't stick, if it didn't ('http' | 'dropped'), so
 // the login page can say so. A store, not page state, because the login page
 // is torn down and rebuilt when the user flips on and back off. See
@@ -133,6 +137,9 @@ async function _fetchAuthFromServer() {
     const active     = !!statusData.active;
     userMgmtActive.set(active);
     setupRequired.set(!!statusData.setup_required);
+    // ourfamily fork: open use without an account (stores/community.js).
+    communityMode.set(!isNative && !!statusData.community_mode);
+    communityGuest.set(!isNative && !!statusData.community_guest);
 
     // PWA single-user mode (server reachable, user mgmt off): hydrate the
     // synthetic LOCAL_USER from local settings so $currentUser is never
@@ -376,6 +383,8 @@ export async function logout() {
     }
   } catch { /* never block sign-out */ }
   currentUser.set(null);
+  // ourfamily fork: signed out of an account = back to the shared guest.
+  if (!isNative && !logoutUrl && getStore(communityMode)) await _fetchAuthFromServer();
   // The watch should not keep a working token for an account that signed out.
   if (isNative) import('../lib/wear-pairing.js').then(({ unpairWatch }) => unpairWatch()).catch(() => {});
   // Note: userMgmtActive is a server-wide flag, not per-session. Don't flip

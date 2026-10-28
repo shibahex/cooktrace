@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin } from '../middleware/auth.js';
+import { communityMode } from '../lib/community.js'; // ourfamily fork
 import { listProviders as oidcListProviders, publicProvider as oidcPublicProvider, isPasswordLoginEnabled, listUserLinks } from '../lib/oidc.js';
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
 import { estimate as estimatePasswordStrength, STRONG_MIN_SCORE } from '../lib/password-strength.js';
@@ -149,6 +150,9 @@ router.get('/status', wrap((req, res) => {
     // What the Android sync speaks. 2: edits merge field by field, and a
     // row the app makes carries a key, so sending it twice makes it once.
     sync_version: 2,
+    // ourfamily fork: open use without an account (lib/community.js).
+    community_mode: communityMode(),
+    community_guest: !!req.user?.ourfamilyGuest,
   });
 }));
 

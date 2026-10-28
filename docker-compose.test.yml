@@ -1,0 +1,37 @@
+# ourfamily fork: a throwaway test instance built from this checkout.
+#
+#   docker compose -f docker-compose.test.yml up -d --build
+#   open http://localhost:3004
+#
+# Data lives in Docker volumes, separate from any real install. Start over
+# with a blank database:
+#
+#   docker compose -f docker-compose.test.yml down -v
+#
+# Not for production: fixed JWT secret, cookies allowed over plain HTTP.
+services:
+  cooktrace-test:
+    build: .
+    image: cooktrace:ourfamily-test
+    container_name: cooktrace-test
+    ports:
+      - "3004:3003"
+    volumes:
+      - cooktrace-test-db:/data/db
+      - cooktrace-test-uploads:/data/uploads
+    environment:
+      - DB_PATH=/data/db/cooktrace.db
+      - UPLOADS_PATH=/data/uploads
+      - JWT_SECRET=test-only-not-a-secret-0123456789abcdef
+      # Plain HTTP (e.g. from another device on the LAN) would drop the
+      # sign-in cookie without this.
+      - INSECURE_COOKIES=1
+      # No sign-in needed, one recipe list, Kitchens tab (FORK.md).
+      # Set to false to compare with upstream behaviour.
+      - COMMUNITY_MODE=true
+      - LOG_LEVEL=info
+    restart: "no"
+
+volumes:
+  cooktrace-test-db:
+  cooktrace-test-uploads:

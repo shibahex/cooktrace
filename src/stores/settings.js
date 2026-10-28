@@ -385,7 +385,7 @@ function _migrateBannerStyle() {
   // install" signal that doesn't require scraping localStorage. Mirrors
   // LiftTrace d24bed5.
   if (DB.getSetting('pageBanners', true) === false) return 'off';
-  return 'animated';
+  return 'off'; // ourfamily fork: plain header by default (was 'animated')
 }
 export const bannerStyle = createSettingStore('bannerStyle', _migrateBannerStyle());
 // pageBanners is now a legacy derived alias. Illustrated SVG banners were

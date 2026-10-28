@@ -48,6 +48,8 @@
   import SettingsBackup          from '../components/settings/SettingsBackup.svelte';
   import SettingsImport          from '../components/settings/SettingsImport.svelte';
   import SettingsKitchens        from '../components/settings/SettingsKitchens.svelte';
+  import NamesMerge              from '../components/community/NamesMerge.svelte'; // ourfamily fork
+  import { communityMode }       from '../stores/community.js';                   // ourfamily fork
   import SettingsUpdates         from '../components/settings/SettingsUpdates.svelte';
   import SettingsDiagnostics     from '../components/settings/SettingsDiagnostics.svelte';
   import SettingsUserManagement  from '../components/settings/SettingsUserManagement.svelte';
@@ -183,6 +185,7 @@
     backup:        { titleKey: 'settings.backup.section',            icon: 'archive' },
     import:        { titleKey: 'settings.import.section',            icon: 'import_export' },
     kitchens:      { titleKey: 'settings.kitchens.section',          icon: 'group' },
+    names:         { titleKey: 'settings.names.section',             icon: 'badge' }, // ourfamily fork
     users:         { titleKey: 'settings.users.section',             icon: 'group' },
     auth:          { titleKey: 'settings.authentication.section',    icon: 'shield_person' },
     apitokens:     { titleKey: 'settings.apitokens.section',         icon: 'key' },
@@ -215,6 +218,7 @@
     backup:        SettingsBackup,
     import:        SettingsImport,
     kitchens:      SettingsKitchens,
+    names:         NamesMerge, // ourfamily fork
     users:         SettingsUserManagement,
     auth:          SettingsAuth,
     apitokens:     SettingsApiTokens,
@@ -243,6 +247,7 @@
     email:         ['email','smtp','mail','password reset','invite','from address','tls','outgoing','send test','test email','recipient','test recipient','connection status','change password','change smtp'],
     backup:        ['backup','export','import','restore','json','full backup','reset','danger zone'],
     import:        ['import','mealie','tandoor','paprika','recipe import','migration','migrate','transfer','bulk','zip','from another app'],
+    names:         ['names','name','visitors','guests','guest','merge','merge names','accounts','who added'], // ourfamily fork
     kitchens:      ['kitchens','kitchen','household','household members','share','sharing','family','roommates','crew','group','members','auto-share','auto share','auto sharing','share recipes','share cookbook','cookbook sharing','via kitchen'],
     users:         ['users','user management','accounts','login','admin','register','invite'],
     auth:          ['authentication','auth','sso','single sign-on','single sign on','oidc','openid','authentik','keycloak','authelia','password login'],
@@ -527,6 +532,13 @@
     <span>{$_('settings.kitchens.section')}</span>
     <span class="material-symbols-rounded chevron">expand_more</span>
   </button>
+  {#if $communityMode}<!-- ourfamily fork: merge visitor names into accounts -->
+  <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'names')} class:active={currentSection === 'names'} aria-current={currentSection === 'names' ? 'page' : undefined} on:click={() => toggleSection('names')}>
+    <span class="material-symbols-rounded si">badge</span>
+    <span>{$_('settings.names.section')}</span>
+    <span class="material-symbols-rounded chevron">expand_more</span>
+  </button>
+  {/if}
   <button class="section-toggle" class:hidden={!sectionVisible(settingsQuery, 'updates')} class:active={currentSection === 'updates'} aria-current={currentSection === 'updates' ? 'page' : undefined} on:click={() => toggleSection('updates')}>
     <span class="material-symbols-rounded si">system_update</span>
     <span>{$_('settings.updates.section')}</span>

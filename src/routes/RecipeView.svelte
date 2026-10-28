@@ -39,6 +39,7 @@
   import { startTimer, formatRemaining } from '../stores/cookTimers.js';
   import { cookModeActive } from '../stores/cookMode.js';
   import { currentUser } from '../stores/auth.js';
+  import { communityMode, isGuest } from '../stores/community.js'; // ourfamily fork
   import { onDestroy, onMount, tick } from 'svelte';
   import { fold } from '../lib/fold.js';
   import { get } from 'svelte/store';
@@ -79,6 +80,25 @@
   $: isSharedView = !!recipe && recipe.user_id != null
     && $currentUser?.id != null
     && recipe.user_id !== $currentUser.id;
+
+  // ourfamily fork: recipes are public by default; the owner (signed in to
+  // a real account, not the shared guest) can hide one.
+  $: canHide = !!recipe && $communityMode && !$isGuest
+    && recipe.user_id != null && recipe.user_id === $currentUser?.id;
+  $: recipeHidden = !!recipe && recipe.visibility != null && recipe.visibility !== 'group';
+  let hideBusy = false;
+  async function toggleHidden() {
+    hideBusy = true;
+    try {
+      const r = await NtApi.put(`/api/community/recipes/${recipe.id}/hidden`, { hidden: !recipeHidden });
+      recipe = { ...recipe, visibility: r.visibility };
+      showSuccess(r.hidden ? 'Hidden: only you can see it now' : 'Everyone can see it now');
+    } catch (e) {
+      showError(e.message || 'Could not change who can see it');
+    } finally {
+      hideBusy = false;
+    }
+  }
 
   // Scaling — multiplier applied to every ingredient qty + the displayed
   // serving count. 1 = original. Custom serving input drives this too.
@@ -1067,6 +1087,14 @@
         <button class="btn-icon" on:click={openShareSheet} aria-label="Share" title="Share">
           <span class="material-symbols-rounded">share</span>
         </button>
+        {#if canHide}
+          <!-- ourfamily fork: the owner can hide a recipe from everyone else. -->
+          <button class="btn-icon" class:hidden-on={recipeHidden} on:click={toggleHidden} disabled={hideBusy}
+            aria-label={recipeHidden ? 'Hidden: show to everyone' : 'Visible to everyone: hide'}
+            title={recipeHidden ? 'Hidden from everyone but you. Tap to show it to everyone.' : 'Everyone can see this. Tap to hide it.'}>
+            <span class="material-symbols-rounded">{recipeHidden ? 'visibility_off' : 'visibility'}</span>
+          </button>
+        {/if}
         {#if canEdit}
           <button class="btn-icon" on:click={() => push(`/recipes/edit/${recipe.id}`)} aria-label="Edit" title="Edit">
             <span class="material-symbols-rounded">edit</span>
@@ -3195,4 +3223,6 @@
       max-height: min(60vh, 520px);
     }
   }
+  /* ourfamily fork: hide toggle while the recipe is hidden */
+  .btn-icon.hidden-on { color: var(--warning, #f59e0b); }
 </style>
