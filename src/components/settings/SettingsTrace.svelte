@@ -68,8 +68,15 @@
     aiApiKey.set(aiApiKeyDraft);
     if (canTest) await testConnection({ silentOk: false });
   }
+  // ourfamily fork: the app adds /v1/chat/completions itself, so a pasted
+  // ".../v1" (or the full endpoint) would call .../v1/v1/... and 404.
+  function _cleanBaseUrl(u) {
+    return String(u || '').trim().replace(/\/+$/, '')
+      .replace(/\/chat\/completions$/i, '').replace(/\/v1$/i, '');
+  }
   async function saveAiBaseUrl() {
-    const next = aiBaseUrlDraft.trim();
+    const next = _cleanBaseUrl(aiBaseUrlDraft);
+    aiBaseUrlDraft = next;
     if (next === ($aiBaseUrl || '')) return;
     aiBaseUrl.set(next);
     if (canTest) await testConnection({ silentOk: false });
@@ -107,10 +114,53 @@
     return m === AI_MODEL_CUSTOM ? 'Custom…' : m;
   }
   // Required fields the user must fill in for a meaningful test.
+  // ourfamily fork: an OpenAI-compatible server (Ollama, LM Studio, a
+  // private gateway) may need no key; callAI already sends without one.
   $: canTest = !envLocks.ai
-    && !!$aiApiKey?.trim()
+    && ($aiProvider === 'custom' || !!$aiApiKey?.trim())
     && !!$aiModel?.trim()
     && ($aiProvider !== 'custom' || !!$aiBaseUrl?.trim());
+
+  // ourfamily fork: one button that saves what's typed (even before the
+  // field is left) and tests it, saying what's missing instead of
+  // silently doing nothing.
+  async function saveAndTest() {
+    aiBaseUrlDraft = _cleanBaseUrl(aiBaseUrlDraft);
+    aiBaseUrl.set(aiBaseUrlDraft);
+    aiApiKey.set(aiApiKeyDraft);
+    const missing = [];
+    if ($aiProvider === 'custom' && !aiBaseUrlDraft.trim()) missing.push('Base URL');
+    if (!$aiModel?.trim()) missing.push('Model');
+    if ($aiProvider !== 'custom' && !aiApiKeyDraft.trim()) missing.push('API Key');
+    if (missing.length) { showError(`Saved. To connect, fill in: ${missing.join(', ')}`); return; }
+    await testConnection();
+  }
+
+  // ourfamily fork: ask an OpenAI-compatible server which models it has
+  // (GET {base}/v1/models), so the Model field can be picked, not guessed.
+  let serverModels = [];
+  let findingModels = false;
+  async function findModels() {
+    const base = _cleanBaseUrl(aiBaseUrlDraft);
+    if (!base) { showError('Enter the Base URL first'); return; }
+    aiBaseUrlDraft = base;
+    aiBaseUrl.set(base);
+    findingModels = true;
+    try {
+      const headers = aiApiKeyDraft.trim() ? { Authorization: `Bearer ${aiApiKeyDraft.trim()}` } : {};
+      const res = await fetch(`${base}/v1/models`, { headers });
+      if (!res.ok) throw new Error(`The server answered ${res.status}`);
+      const body = await res.json();
+      serverModels = (body?.data || body?.models || []).map(m => m?.id || m?.name || m).filter(m => typeof m === 'string');
+      if (!serverModels.length) throw new Error('The server listed no models');
+      if (!$aiModel?.trim()) { aiModel.set(serverModels[0]); _invalidate(); }
+      showSuccess(`Found ${serverModels.length} model${serverModels.length === 1 ? '' : 's'}`);
+    } catch (e) {
+      showError(`Couldn't list models: ${e.message || e}. Type the model name instead.`);
+    } finally {
+      findingModels = false;
+    }
+  }
 
   // Any change to the auth fields invalidates the prior test result.
   // Clears aiKeyVerified so the FAB hides until the user retests.
@@ -241,7 +291,7 @@
     {#if $aiProvider === 'custom' && !envLocks.ai}
       <div class="setting-divider"></div>
       <div class="setting-row stack">
-        <span class="setting-label">{$_('settings_trace_ct.base_url')} <span class="setting-desc">{$_('settings_trace_ct.base_url_desc')}</span></span>
+        <span class="setting-label">{$_('settings_trace_ct.base_url')} <span class="setting-desc">The server's address, e.g. https://ai.example.com (a trailing /v1 is fine, it's added for you)</span></span><!-- ourfamily fork -->
         <div class="key-row">
           <input class="input" type="url" bind:value={aiBaseUrlDraft}
             placeholder="https://api.example.com/v1"
@@ -268,10 +318,27 @@
           </select>
         </div>
       {:else}
-        <input class="input" type="text" style="width:220px" value={$aiModel}
-          placeholder={AI_DEFAULT_MODELS[$aiProvider] || ''}
-          disabled={envLocks.ai}
-          on:change={e => { aiModel.set(e.target.value); _invalidate(); }} />
+        <!-- ourfamily fork: saved while typing; Find lists the server's models. -->
+        <div class="model-find">
+          {#if serverModels.length}
+            <div class="select-wrap" style="width:220px">
+              <select class="select sel-sm" value={$aiModel} on:change={e => { aiModel.set(e.target.value); _invalidate(); }}>
+                {#if $aiModel && !serverModels.includes($aiModel)}<option value={$aiModel}>{$aiModel}</option>{/if}
+                {#each serverModels as m}<option value={m}>{m}</option>{/each}
+              </select>
+            </div>
+          {:else}
+            <input class="input" type="text" style="width:220px" value={$aiModel}
+              placeholder={AI_DEFAULT_MODELS[$aiProvider] || 'model name'}
+              disabled={envLocks.ai}
+              on:input={e => { aiModel.set(e.target.value); _invalidate(); }} />
+          {/if}
+          {#if $aiProvider === 'custom'}
+            <button class="btn btn-secondary btn-sm" on:click={findModels} disabled={findingModels}>
+              {findingModels ? 'Looking…' : 'Find models'}
+            </button>
+          {/if}
+        </div>
       {/if}
     </div>
     {#if aiModelSelectVal === AI_MODEL_CUSTOM && $aiProvider !== 'custom' && !envLocks.ai}
@@ -310,6 +377,21 @@
           <span class="material-symbols-rounded">{showKey ? 'visibility_off' : 'visibility'}</span>
         </button>
       </div>
+      {#if $aiProvider === 'custom'}<span class="setting-desc">Optional for servers that don't use one.</span>{/if}
+    </div>
+
+    <!-- ourfamily fork: save what's typed and test it, in one press. -->
+    <div class="setting-divider"></div>
+    <div class="setting-row save-test-row">
+      <span class="setting-desc">
+        {#if testStatus === 'ok' || $aiKeyVerified}Connected. Press again after changing anything.
+        {:else if testStatus === 'fail'}Last test failed, see the message. Fix it and press again.
+        {:else}Saves the fields above and checks the connection.{/if}
+      </span>
+      <button class="btn btn-primary" on:click={saveAndTest} disabled={testing}>
+        <span class="material-symbols-rounded" style="font-size:18px">{testing ? 'hourglass_top' : 'wifi_tethering'}</span>
+        {testing ? 'Testing…' : 'Save & test'}
+      </button>
     </div>
     {/if}
 
@@ -477,4 +559,7 @@
   }
   .toggle-cb:checked { background: var(--accent-dim); border-color: var(--accent); }
   .toggle-cb:checked::after { background: var(--accent); transform: translateX(16px); }
+  /* ourfamily fork */
+  .model-find { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .save-test-row .btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 </style>
