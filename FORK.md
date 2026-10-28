@@ -61,8 +61,10 @@ plus a "community mode" for a single family recipe box.
 - **Recipes can belong to a household.** The editor has a Household
   field (it starts on the household you're in), and a recipe's byline
   shows its household; its owner can change it there. The Recipes page
-  has a Households tab after Cookbooks: a card per household (recipes,
-  people) and a Manage card, then that household's recipes. Recipes stay visible to everyone.
+  has a Households tab after Cookbooks: an "All households" card (every
+  household's recipes, grouped by household), a card per household, and a
+  Manage card. Every card in the lists carries its household's badge. The
+  Recipes tab always lists every recipe. Recipes stay visible to everyone.
 - **"In stock" counts use the household's pantry**, matching ingredient
   names ("flour" covers "bread flour").
 

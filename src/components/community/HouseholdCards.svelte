@@ -12,6 +12,14 @@
 </script>
 
 <div class="hc-row" role="radiogroup" aria-label="Household">
+  <button class="hc-card" class:active={selectedId === 'all'} role="radio" aria-checked={selectedId === 'all'}
+    on:click={() => dispatch('select', 'all')}>
+    <span class="hc-icon material-symbols-rounded">holiday_village</span>
+    <span class="hc-text">
+      <span class="hc-name">All households</span>
+      <span class="hc-meta">{count(households.reduce((n, h) => n + h.recipe_ids.length, 0), 'recipe')} · {count(households.length, 'household')}</span>
+    </span>
+  </button>
   {#each households as h (h.id)}
     <button class="hc-card" class:active={h.id === selectedId} role="radio" aria-checked={h.id === selectedId}
       on:click={() => dispatch('select', h.id)}>

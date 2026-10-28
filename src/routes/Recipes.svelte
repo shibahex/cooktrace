@@ -616,10 +616,12 @@
   // list; this shows the ones assigned to a household (stores/households.js).
   let vtBtnKitchens = null;
   $: myKitchens = $householdsState.households.filter(h => !$householdsState.is_guest || h.can_use);
-  let activeKitchenId = null;
-  $: activeKitchen = myKitchens.find(k => k.id === activeKitchenId)
-    || myKitchens.find(k => k.id === $activeHouseholdId) || myKitchens[0] || null;
-  $: kitchenRecipeIds = new Set(activeKitchen?.recipe_ids || []);
+  // 'all': every household's recipes, grouped by household.
+  let activeKitchenId = 'all';
+  $: activeKitchen = activeKitchenId === 'all' ? null : myKitchens.find(k => k.id === activeKitchenId) || null;
+  // Recipe id -> its household, for the badge on each card.
+  $: recipeHousehold = new Map(myKitchens.flatMap(h => h.recipe_ids.map(id => [id, h])));
+  $: kitchenRecipeIds = new Set(activeKitchen ? activeKitchen.recipe_ids : recipeHousehold.keys());
   function _loadKitchens() { if ($communityMode) loadHouseholds(); }
   let vtPillX = 0;
   let vtPillW = 0;
@@ -781,7 +783,13 @@
         foldText(r.category?.name).includes(q)
       );
     }
-    return _applySort([...list], $recipesSort);
+    const sorted = _applySort([...list], $recipesSort);
+    // ourfamily fork: all households at once, grouped by household.
+    if (viewMode === 'households' && !activeKitchen) {
+      const hn = r => recipeHousehold.get(r.id)?.name || '';
+      sorted.sort((a, b) => hn(a).localeCompare(hn(b)));
+    }
+    return sorted;
   })();
 
   // Sort modes mirror NutriTrace's foods/meals/recipes sort. The
@@ -1333,7 +1341,7 @@
 
     {#if viewMode === 'households' && myKitchens.length > 0}
       <!-- ourfamily fork: which household's recipes to show. -->
-      <HouseholdCards households={myKitchens} selectedId={activeKitchen?.id}
+      <HouseholdCards households={myKitchens} selectedId={activeKitchenId}
         on:select={e => (activeKitchenId = e.detail)} />
     {/if}
     {#if (viewMode === 'recipes' || (viewMode === 'households' && myKitchens.length > 0)) && (recipes.length > 0 || ($mixSharedIntoRecipes && sharedRecipes.length > 0))}
@@ -1604,8 +1612,8 @@
       <!-- ourfamily fork -->
       <div class="state empty" in:fade={{ duration: 120 }}>
         <span class="material-symbols-rounded empty-icon">menu_book</span>
-        <h2>No recipes in {activeKitchen?.name} yet</h2>
-        <p>Pick {activeKitchen?.name} under Household when you add a recipe, or on any recipe's page.</p>
+        <h2>No recipes in {activeKitchen?.name || 'any household'} yet</h2>
+        <p>Pick a household under Household when you add a recipe, or on any recipe's page.</p>
       </div>
     {:else if recipes.length === 0 && !($mixSharedIntoRecipes && sharedRecipes.length > 0)}
       <div class="state empty" in:fade={{ duration: 120 }}>
@@ -1648,6 +1656,13 @@
                    mixed-in cards keep their identity chips so ownership
                    is still obvious at a glance. Only renders when the
                    recipe was surfaced from /shared-with-me. -->
+              {#if $communityMode && recipeHousehold.get(r.id)}
+                <!-- ourfamily fork: which household the recipe belongs to. -->
+                <span class="via-kitchen-badge" class:solo={!r.shared_with_me && !(r.visibility && r.visibility !== 'group')} title={`Household: ${recipeHousehold.get(r.id).name}`}>
+                  <span class="material-symbols-rounded">home</span>
+                  {recipeHousehold.get(r.id).name}
+                </span>
+              {/if}
               {#if $communityMode && !r.shared_with_me && r.visibility && r.visibility !== 'group'}
                 <!-- ourfamily fork: your own recipe that only you can see. -->
                 <span class="shared-badge" title="Hidden: only you can see this recipe">
@@ -1930,6 +1945,8 @@
 
   /* Category filter chips — horizontal scroll on overflow so the row
      never breaks mid-name. Active chip gets the category's own color. */
+  /* ourfamily fork: household badge on a card with no author badge above it */
+  .via-kitchen-badge.solo { top: 8px; }
   /* ourfamily fork: the Households tab stands out from the others */
   .vt-btn.vt-households .material-symbols-rounded { color: var(--accent); }
   .cat-filter {

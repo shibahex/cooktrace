@@ -53,7 +53,7 @@
       <span class="hh-switch-name">{$activeHousehold.name}</span>
       <span class="material-symbols-rounded hh-caret">expand_more</span>
     </button>
-    <span class="muted hh-what">{what === 'pantry' ? 'Pantry' : 'Shopping list'} shared by this household</span>
+    <span class="hh-what">Shared {what === 'pantry' ? 'pantry' : 'shopping list'}</span>
   </div>
   {#if offerMove}
     <div class="hh-move">
@@ -65,7 +65,7 @@
     </div>
   {/if}
   {#key $activeHousehold.id}
-    <svelte:component this={component} />
+    <div class="hh-page"><svelte:component this={component} /></div>
   {/key}
 {:else}
   <div class="hh-gate">
@@ -84,22 +84,33 @@
 </Sheet>
 
 <style>
+  /* The switcher row sits on top of the page's own header and wears the
+     same glass background, so the two read as one header. */
   .hh-bar {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     /* Clear the floating menu button the way page headers do. */
     padding: calc(var(--page-top, var(--safe-top, 0px)) + 10px) var(--page-px, 16px) 0
              max(var(--page-px, 16px), var(--hamburger-clearance, 0px));
     min-height: 44px;
+    background: var(--glass-surface);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
   }
+  /* Its top padding already cleared the status bar; the header under it
+     only needs a little (more once it sticks to the top on scroll). */
+  .hh-page :global(.page-header) { padding-top: max(6px, var(--safe-top, 0px)); }
   .hh-switch {
     display: inline-flex; align-items: center; gap: 6px;
-    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-1);
+    border: 1px solid var(--border); background: var(--surface-2, var(--surface-1)); color: var(--text-1);
     border-radius: var(--radius-full, 999px); padding: 6px 12px; font-weight: 600; cursor: pointer;
   }
   .hh-switch .material-symbols-rounded { font-size: 18px; color: var(--accent); }
   .hh-switch .hh-caret { color: var(--text-3); }
   .hh-switch-name { max-width: 50vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hh-what { font-size: 12px; }
+  .hh-what {
+    font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--text-3);
+  }
   .hh-move {
     display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between;
     margin: 10px var(--page-px, 16px) 0; padding: 10px 12px;
