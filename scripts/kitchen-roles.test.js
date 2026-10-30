@@ -69,7 +69,8 @@ test('a non-owner save is recorded, and delete stays owner or admin only', () =>
   const put = recipesJs.slice(recipesJs.indexOf("router.put('/:id',"));
   assert.match(put.slice(0, put.indexOf('\n}));')), /isOwner \? null : u/);
   const del = recipesJs.slice(recipesJs.indexOf("router.delete('/:id',"));
-  assert.match(del.slice(0, 900), /if \(!isOwner && !isAdmin\) return res\.status\(403\)/);
+  // ourfamily fork: community mode opens delete to everyone; otherwise owner or admin.
+  assert.match(del.slice(0, 900), /if \(!isOwner && !isAdmin && !communityMode\(\)\) return res\.status\(403\)/);
   assert.doesNotMatch(del.slice(0, 900), /_canEditViaKitchen/);
 });
 

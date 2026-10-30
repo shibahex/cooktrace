@@ -1076,7 +1076,7 @@
       </button>
     {:else}
       {#if recipe}
-        {#if isSharedView}
+        {#if isSharedView && !canEdit}
           <!-- Small lock chip so the reader knows the recipe is
                read-only for them and who owns it. Byline appears in
                the header body below. -->

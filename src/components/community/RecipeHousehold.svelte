@@ -1,5 +1,5 @@
-<!-- ourfamily fork: the recipe's household, in its byline. Its owner (or an
-     admin) can change it right there. -->
+<!-- ourfamily fork: the recipe's household, in its byline. Anyone can
+     change it right there. -->
 <script>
   import { NtApi } from '../../lib/api.js';
   import { showError, showSuccess } from '../../stores/toast.js';
@@ -13,8 +13,7 @@
   let loadedFor = null;
 
   $: if ($communityMode && recipe?.id && loadedFor !== recipe.id) _load(recipe.id);
-  $: canChange = !!recipe && !!$currentUser
-    && (recipe.user_id === $currentUser.id || $currentUser.role === 'admin');
+  $: canChange = !!recipe && !!$currentUser;
 
   async function _load(id) {
     loadedFor = id;

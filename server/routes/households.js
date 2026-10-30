@@ -305,9 +305,8 @@ router.put('/community/recipes/:id/household', wrap((req, res) => {
   const id = Number(req.params.id);
   const recipe = db.prepare(`SELECT user_id FROM recipes WHERE id = ? AND deleted_at IS NULL`).get(id);
   if (!recipe) return res.status(404).json({ error: 'Not found' });
-  if (!req.user || (recipe.user_id !== req.user.id && !isAdmin(req))) {
-    return res.status(403).json({ error: 'Only the recipe\'s owner can change its household' });
-  }
+  // Open like the rest of the recipe box: anyone can move a recipe.
+  if (!req.user) return res.status(403).json({ error: 'Sign in to do that' });
   const kid = req.body?.household_id == null || req.body.household_id === '' ? null : Number(req.body.household_id);
   if (kid == null) {
     db.prepare(`DELETE FROM ourfamily_recipe_households WHERE recipe_id = ?`).run(id);

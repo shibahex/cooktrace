@@ -13,6 +13,7 @@ import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
+import { communityMode } from '../lib/community.js'; // ourfamily fork: open editing
 import { dispatchWebhookEvent } from '../lib/webhooks.js';
 import { ensurePantryItems } from './pantry.js';
 import { scrapeRecipe, fetchRecipeHtml, extractFromHtml } from '../lib/recipe-scraper.js';
@@ -490,6 +491,10 @@ router.get('/shared-with-me', wrap((req, res) => {
 // every call rather than stored, so demoting someone or removing them
 // from the kitchen takes the access away immediately.
 function _canEditViaKitchen(recipeId, userId) {
+  // ourfamily fork: in community mode the recipe box is open, so anyone
+  // (guests included) edits any recipe, with the same limits as a Sous
+  // Chef: the owner keeps the category and whether it's hidden.
+  if (communityMode()) return true;
   if (userId == null) return false;
   return !!db.prepare(
     `SELECT 1 FROM recipe_shares s
@@ -612,8 +617,11 @@ router.put('/:id', wrap((req, res) => {
   if (isKitchenEditor) {
     data.visibility  = existing.visibility;
     data.category_id = existing.category_id;
-    data.rating      = existing.rating;
-    data.favorite    = existing.favorite;
+    // ourfamily fork: rating and favourite are the family's, not the owner's.
+    if (!communityMode()) {
+      data.rating   = existing.rating;
+      data.favorite = existing.favorite;
+    }
   }
   // Only a category of the recipe's owner (lib/link-checks.js).
   else if (data.category_id != null) data.category_id = ownId('recipe_categories', data.category_id, existing.user_id, { softDelete: false });
@@ -649,7 +657,8 @@ router.put('/:id', wrap((req, res) => {
     const sent = new Set(RECIPE_MERGE_FIELDS.filter(f => f !== 'deleted_at'
       && (f === 'img_url' ? ('img_url' in body || 'imgUrl' in body) : f in body)));
     const said = Array.isArray(sync.changed) ? sync.changed.filter(f => sent.has(f)) : [...sent];
-    const changed = new Set(said.filter(f => !(isKitchenEditor && ['category_id', 'rating', 'favorite', 'visibility'].includes(f))));
+    const ownerOnly = communityMode() ? ['category_id', 'visibility'] : ['category_id', 'rating', 'favorite', 'visibility'];
+    const changed = new Set(said.filter(f => !(isKitchenEditor && ownerOnly.includes(f))));
     const incoming = {};
     for (const f of RECIPE_MERGE_FIELDS) if (f !== 'deleted_at' && sent.has(f)) incoming[f] = guarded[f];
     const m = mergeRecipe(existing, incoming, {
@@ -720,7 +729,7 @@ function _versionAccess(req, res) {
   return {
     recipe, isOwner, u, isKitchenEditor: !isOwner && !isAdmin,
     // Which versions: all of them, or this person's own edits.
-    mine: isOwner ? '' : ' AND v.edited_by = ?', mineArgs: isOwner ? [] : [u],
+    mine: isOwner || communityMode() ? '' : ' AND v.edited_by = ?', mineArgs: isOwner || communityMode() ? [] : [u],
   };
 }
 
@@ -804,7 +813,7 @@ router.post('/:id/backdate', wrap((req, res) => {
   if (!existing) return res.status(404).json({ error: 'Not found' });
   const row = db.prepare(`SELECT user_id, visibility FROM recipes WHERE id = ?`).get(id);
   const isOwner = (u == null && row.user_id == null) || row.user_id === u;
-  if (!isOwner) return res.status(403).json({ error: 'Forbidden' });
+  if (!isOwner && !communityMode()) return res.status(403).json({ error: 'Forbidden' });
 
   const newIso = ts.toISOString().replace('T', ' ').slice(0, 19); // SQLite-naive UTC
   const cur = existing.created_at || '';
@@ -934,7 +943,7 @@ router.put('/:id/cooks/:cookId', wrap((req, res) => {
   const recipe = db.prepare(`SELECT * FROM recipes WHERE id = ? AND deleted_at IS NULL`).get(id);
   if (!recipe) return res.status(404).json({ error: 'Recipe not found' });
   const isOwner = (u == null && recipe.user_id == null) || recipe.user_id === u;
-  if (!isOwner) return res.status(403).json({ error: 'Forbidden' });
+  if (!isOwner && !communityMode()) return res.status(403).json({ error: 'Forbidden' });
 
   const existing = db.prepare(`SELECT * FROM cook_diary WHERE id = ? AND recipe_id = ? AND deleted_at IS NULL`).get(cookId, id);
   if (!existing) return res.status(404).json({ error: 'Cook entry not found' });
@@ -1066,7 +1075,7 @@ router.post('/:id/share', wrap((req, res) => {
   const recipe = db.prepare(`SELECT * FROM recipes WHERE id = ? AND deleted_at IS NULL`).get(id);
   if (!recipe) return res.status(404).json({ error: 'Not found' });
   const isOwner = (u == null && recipe.user_id == null) || recipe.user_id === u;
-  if (!isOwner) return res.status(403).json({ error: 'Forbidden' });
+  if (!isOwner && !communityMode()) return res.status(403).json({ error: 'Forbidden' });
 
   // 22 url-safe chars: 16 random bytes -> base64url. Cryptographically
   // unguessable, short enough for a shareable URL.
@@ -1083,7 +1092,7 @@ router.delete('/:id/share', wrap((req, res) => {
   const recipe = db.prepare(`SELECT * FROM recipes WHERE id = ? AND deleted_at IS NULL`).get(id);
   if (!recipe) return res.status(404).json({ error: 'Not found' });
   const isOwner = (u == null && recipe.user_id == null) || recipe.user_id === u;
-  if (!isOwner) return res.status(403).json({ error: 'Forbidden' });
+  if (!isOwner && !communityMode()) return res.status(403).json({ error: 'Forbidden' });
   db.prepare(`UPDATE recipes SET share_token = NULL, updated_at = datetime('now') WHERE id = ?`).run(id);
   res.json({ ok: true });
 }));
@@ -1105,7 +1114,7 @@ router.delete('/:id/cooks/:cookId', wrap((req, res) => {
   const recipe = db.prepare(`SELECT * FROM recipes WHERE id = ? AND deleted_at IS NULL`).get(id);
   if (!recipe) return res.status(404).json({ error: 'Recipe not found' });
   const isOwner = (u == null && recipe.user_id == null) || recipe.user_id === u;
-  if (!isOwner) return res.status(403).json({ error: 'Forbidden' });
+  if (!isOwner && !communityMode()) return res.status(403).json({ error: 'Forbidden' });
 
   db.prepare(
     `UPDATE cook_diary SET deleted_at = datetime('now'), updated_at = datetime('now')
@@ -2616,7 +2625,7 @@ router.delete('/:id', wrap((req, res) => {
   if (!existing) return res.status(404).json({ error: 'Not found' });
   const isOwner = (u == null && existing.user_id == null) || existing.user_id === u;
   const isAdmin = req.user?.role === 'admin';
-  if (!isOwner && !isAdmin) return res.status(403).json({ error: 'Only the recipe owner or an admin can delete this recipe' });
+  if (!isOwner && !isAdmin && !communityMode()) return res.status(403).json({ error: 'Only the recipe owner or an admin can delete this recipe' });
 
   db.prepare(
     `UPDATE recipes SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
