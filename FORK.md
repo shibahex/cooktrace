@@ -34,8 +34,11 @@ plus a "community mode" for a single family recipe box.
   own, the eye button in its header hides it from everyone but you (and
   anyone you share it with directly); your hidden recipes carry a
   "Hidden" badge in the list. The guest account's recipes can't be
-  hidden, since every visitor is the same account. Only a recipe's owner
-  (or an admin) can edit or delete it.
+  hidden, since every visitor is the same account.
+- **Anyone can edit or delete any recipe**, guests included: edit, delete
+  (it goes to the trash), rate, favorite, version history, cook log
+  entries, share links. Its owner keeps its category and whether it's
+  hidden. Ratings and favorites are shared, one per recipe.
 - **What Guest can't do:** change its name or password, delete itself,
   link single sign-on, or start or join households (it can still use
   them, see below).
@@ -60,13 +63,30 @@ plus a "community mode" for a single family recipe box.
   that tick "Guests welcome". Guests pick a household the same way.
 - **Recipes can belong to a household.** The editor has a Household
   field (it starts on the household you're in), and a recipe's byline
-  shows its household; its owner can change it there. The Recipes page
+  shows its household; anyone can change it there. The Recipes page
   has a Households tab after Cookbooks: an "All households" card (every
   household's recipes, grouped by household), a card per household, and a
   Manage card. Every card in the lists carries its household's badge. The
   Recipes tab always lists every recipe. Recipes stay visible to everyone.
 - **"In stock" counts use the household's pantry**, matching ingredient
   names ("flour" covers "bread flour").
+- **Backups can go to a network share (SMB).** Settings → Backup → Full
+  Backup → "Copy to network share" (admins). Enter the share
+  (`\\nas\backups`), an optional folder in it, username and password
+  (blank username = guest). Then, all optional:
+  - **Back up to the share every N days at a time** (0 = off). Makes a
+    full backup and copies it there. If the share can't be reached, the
+    same backup is retried every hour (saving the settings retries on
+    the next check). Backups on the server's own disk then follow Auto
+    Backup's "Keep last".
+  - **Keep the newest N backups on the share** (0 = all); older ones on
+    the share are deleted after each copy.
+  - **Also copy backups made by hand or by Auto Backup.**
+  "Test connection" makes the folder if needed and writes and deletes a
+  small file. Each row in the backup list has a "copy to share" button;
+  the last copy, any error and the next scheduled run show under the
+  heading. The password is stored encrypted. Needs `smbclient`, which the
+  Docker image installs.
 
 On by default. Set `COMMUNITY_MODE=false` to get upstream behaviour back
 (recipes that were made public stay public; the Guest account stays in
@@ -108,6 +128,8 @@ Most of the code lives in new files, so upstream merges rarely conflict:
 | `src/components/community/HouseholdCards.svelte` | The household cards on the Recipes page's Households tab. |
 | `src/components/community/{HouseholdField,RecipeHousehold}.svelte` | Household in the recipe editor, and in a recipe's byline. |
 | `src/components/community/{SettingsHouseholds,SettingsPermissions}.svelte` | Settings → Households (instead of Kitchens) and Settings → Permissions. |
+| `server/lib/smb-backup.js`, `server/routes/smb-backup.js` | Copying full backups to an SMB share with `smbclient` (password via a private `-A` file, never the command line). Settings in `app_config` (`ourfamily_smb_*`), served at `/api/backup-smb` (admin). |
+| `src/components/community/SmbBackupSettings.svelte` | The SMB section in Settings → Backup. |
 
 Each household's pantry and list live under a hidden `users` row (`household-<id>`, no password), so upstream's pantry and shopping code needs no change. These rows and the guest account are left out of every list of people. Deleting a household deletes its row, and so its pantry and list.
 
@@ -123,7 +145,7 @@ name are listed in `NEEDS_NAME` in `server/lib/community.js`.
 Small edits to upstream files, each marked with an `ourfamily fork` comment:
 `server/index.js`, `server/routes/auth.js`, `src/stores/auth.js`,
 `src/App.svelte`, `src/components/layout/Sidebar.svelte`, `src/routes/Settings.svelte` (Names, Households, Permissions), `src/routes/RecipeEditor.svelte` (Household field), `src/routes/Wizard.svelte`, `src/stores/settings.js` (header gradient off by default),
-`src/routes/{Login,Recipes,RecipeView}.svelte`.
+`src/routes/{Login,Recipes,RecipeView}.svelte`, `server/routes/full-backup.js`, `server/lib/scheduler.js` and `src/components/settings/SettingsBackup.svelte` (SMB copies), `Dockerfile` (`samba-client`).
 
 To list them: `git grep -n "ourfamily fork"`.
 

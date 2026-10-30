@@ -39,6 +39,7 @@ import webhooksRoutes     from './routes/webhooks.js';
 import mcpRoutes          from './routes/mcp.js';
 import v1ApiRoutes        from './routes/api/v1/index.js';
 import communityRoutes    from './routes/community.js';    // ourfamily fork
+import smbBackupRoutes    from './routes/smb-backup.js';   // ourfamily fork
 import { applyCommunitySchema, communityGuest } from './lib/community.js'; // ourfamily fork
 import { logger }   from './logger.js';
 import { authenticate, userMgmtActive } from './middleware/auth.js';
@@ -230,6 +231,7 @@ router.use('/api/settings',     settingsRoutes);
 router.use('/api/app-config',   appConfigRoutes);
 router.use('/api/ai',           aiRoutes);
 router.use('/api/full-backup',  fullBackupRoutes);
+router.use('/api/backup-smb',   smbBackupRoutes);   // ourfamily fork
 router.use('/api/updates',      updatesRoutes);
 router.use('/api/sync',         syncRoutes);
 router.use('/api/recipes',      recipesRoutes);

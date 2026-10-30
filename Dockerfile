@@ -19,8 +19,9 @@ FROM node:20-alpine
 # Python; we install it alongside Node so the Node scrape route can
 # shell out to it via subprocess. The --break-system-packages flag
 # is required by pip on Alpine 3.18+ which marks system Python as
-# externally managed.
-RUN apk add --no-cache python3 py3-pip make g++ \
+# externally managed. samba-client (smbclient) copies backups to an SMB
+# share (ourfamily fork, server/lib/smb-backup.js).
+RUN apk add --no-cache python3 py3-pip make g++ samba-client \
     && pip3 install --no-cache-dir --break-system-packages 'recipe-scrapers>=14.0.0'
 WORKDIR /app
 COPY server/package*.json ./

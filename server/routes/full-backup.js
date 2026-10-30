@@ -21,6 +21,7 @@ import multer from 'multer';
 import db from '../db.js';
 import { logger } from '../logger.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { afterBackupCreated } from '../lib/smb-backup.js'; // ourfamily fork
 
 const router = express.Router();
 router.use(requireAuth);
@@ -100,7 +101,7 @@ export function setScheduleConfig({ schedule, time, retention }) {
 }
 
 /** Create a full ZIP backup on disk; shared by POST / and the scheduler. */
-export function createBackup() {
+export function createBackup({ skipSmb = false } = {}) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const filename  = `cooktrace-backup-${timestamp}.zip`;
   const destPath  = path.join(BACKUPS_DIR, filename);
@@ -124,8 +125,18 @@ export function createBackup() {
     addDir(UPLOADS_DIR, '');
   }
   zip.writeZip(destPath);
+  // ourfamily fork: copy it to the SMB share in the background, if set up
+  // (the SMB schedule copies its own backups, so it skips this).
+  if (!skipSmb) afterBackupCreated(destPath);
   const stat = fs.statSync(destPath);
   return { filename, size: stat.size, createdAt: new Date().toISOString() };
+}
+
+/** ourfamily fork: full path of a backup ZIP on disk, or null. */
+export function backupFilePath(filename) {
+  if (!filename || filename !== path.basename(filename) || !filename.toLowerCase().endsWith('.zip')) return null;
+  const p = path.join(BACKUPS_DIR, filename);
+  return fs.existsSync(p) ? p : null;
 }
 
 /** Delete archives beyond the retention limit, keeping the N newest. */

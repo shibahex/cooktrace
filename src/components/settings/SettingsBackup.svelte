@@ -19,6 +19,8 @@
   import { isNative, getServerUrl, getAuthToken, apiUrl } from '../../lib/platform.js';
   import { currentUser, userMgmtActive } from '../../stores/auth.js';
   import TimePicker from '../ui/TimePicker.svelte';
+  import SmbBackupSettings, { smbReady } from '../community/SmbBackupSettings.svelte'; // ourfamily fork
+  import { NtApi } from '../../lib/api.js'; // ourfamily fork
   import {
     localBackupSchedule, localBackupTime, localBackupRetention,
     localBackupLastRun, localBackupLastError,
@@ -31,6 +33,22 @@
   let importJsonInput;
   let importZipInput;
   let localBackupBusy = false;
+
+  // ourfamily fork: SMB share copies.
+  let smbSettings;
+  let smbCopying = null; // filename being copied
+  async function copyToSmb(filename) {
+    smbCopying = filename;
+    try {
+      await NtApi.post(`/api/backup-smb/copy/${encodeURIComponent(filename)}`);
+      showSuccess(`Copied ${filename} to the share`);
+    } catch (e) {
+      showError(e.message || 'Copy to share failed');
+    } finally {
+      smbCopying = null;
+      smbSettings?.refreshStatus();
+    }
+  }
 
   // Scheduled-backup state (TraceApps parity with NutriTrace). Server-mode
   // schedule lives in app_config and is admin-only; local-mode schedule is
@@ -183,6 +201,9 @@
       const result = await res.json();
       showSuccess(`Backup created (${fmtBytes(result.size)})`);
       await loadFullBackups();
+      // ourfamily fork: the SMB copy runs in the background; refresh its status.
+      setTimeout(() => smbSettings?.refreshStatus(), 4000);
+      setTimeout(() => smbSettings?.refreshStatus(), 20000);
     } catch (e) {
       showError(e.message || 'Backup failed');
     } finally {
@@ -545,6 +566,10 @@
           <div class="setting-divider" style="margin:0 -16px 12px"></div>
         {/if}
 
+        <!-- ourfamily fork: copy backups to an SMB share. -->
+        <SmbBackupSettings bind:this={smbSettings} />
+        <div class="setting-divider" style="margin:0 -16px 12px"></div>
+
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
           <button class="btn btn-primary" style="height:36px;font-size:13px"
             on:click={createFullBackup} disabled={fullBackupBusy}>
@@ -589,6 +614,14 @@
             <span class="backup-col-date">{new Date(bk.createdAt).toLocaleDateString()}</span>
             <span class="backup-col-size">{fmtBytes(bk.size)}</span>
             <div class="backup-actions">
+              {#if $smbReady}
+                <button class="btn-icon" style="padding:0 4px" disabled={smbCopying != null}
+                  on:click={() => copyToSmb(bk.filename)} title="Copy to network share" aria-label="Copy to network share">
+                  <span class="material-symbols-rounded" class:spin={smbCopying === bk.filename} style="font-size:20px">
+                    {smbCopying === bk.filename ? 'autorenew' : 'drive_folder_upload'}
+                  </span>
+                </button>
+              {/if}
               <button class="btn btn-secondary backup-action-btn" on:click={() => downloadFullBackup(bk.filename)}>
                 <span class="material-symbols-rounded" style="font-size:15px">download</span> Download
               </button>

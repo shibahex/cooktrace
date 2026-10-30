@@ -77,6 +77,10 @@ async function runTick() {
   // gating.
   try { await _checkBackupSchedule(); }
   catch (e) { logger.debug?.(`[scheduler] backup check error: ${e.message}`); }
+
+  // ourfamily fork: backups to an SMB share on their own schedule.
+  try { const { checkSmbSchedule } = await import('./smb-backup.js'); await checkSmbSchedule(); }
+  catch (e) { logger.debug?.(`[scheduler] SMB backup check error: ${e.message}`); }
 }
 
 const _BACKUP_INTERVAL_MS = {
