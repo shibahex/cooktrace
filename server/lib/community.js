@@ -198,6 +198,18 @@ export function applyCommunitySchema() {
       name    TEXT NOT NULL
     );
   `);
+  // Trace chat history for guests, one chat per browser (cookie
+  // ct_guest_chat), so visitors don't share the guest account's chat.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ourfamily_guest_ai_history (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_key   TEXT NOT NULL,
+      role       TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ourfamily_guest_ai_history ON ourfamily_guest_ai_history(chat_key, created_at);
+  `);
   db.exec(`
     DROP TRIGGER IF EXISTS ourfamily_recipes_public_ins;
     DROP TRIGGER IF EXISTS ourfamily_recipes_public_upd;

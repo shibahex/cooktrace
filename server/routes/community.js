@@ -8,6 +8,7 @@
 // shared guest account (lib/community.js communityGuest), so upstream's
 // routes serve them like anyone else.
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { userMgmtActive } from '../middleware/auth.js';
@@ -84,6 +85,54 @@ router.get('/recipes/shared-with-me', wrap((req, res, next) => {
     };
   }));
 }));
+
+// ── Trace chat history, per guest browser ──────────────────────────────
+// Every visitor without an account is the same guest account, so
+// upstream's /api/ai/history (one history per account) would show each
+// guest everyone else's chat. For guests, history is kept per browser
+// instead, under a random id in the ct_guest_chat cookie. Same answers
+// and limits as upstream (server/routes/ai.js). Accounts are untouched.
+const GUEST_CHAT_COOKIE = 'ct_guest_chat';
+const GUEST_CHAT_MAX = 200;
+
+function _guestChatKey(req, res) {
+  const have = req.cookies?.[GUEST_CHAT_COOKIE];
+  if (typeof have === 'string' && /^[a-f0-9]{32}$/.test(have)) return have;
+  const key = crypto.randomBytes(16).toString('hex');
+  res.cookie(GUEST_CHAT_COOKIE, key, GUEST_NAME_COOKIE_OPTS);
+  return key;
+}
+
+router.get('/ai/history', (req, res, next) => {
+  if (!req.user?.ourfamilyGuest) return next();
+  const key = _guestChatKey(req, res);
+  res.json(db.prepare(
+    `SELECT role, content, created_at FROM (
+       SELECT id, role, content, created_at FROM ourfamily_guest_ai_history
+        WHERE chat_key = ? ORDER BY created_at DESC, id DESC LIMIT 100
+     ) ORDER BY created_at ASC, id ASC`
+  ).all(key));
+});
+
+router.post('/ai/history', (req, res, next) => {
+  if (!req.user?.ourfamilyGuest) return next();
+  const { role, content } = req.body || {};
+  if (!role || !content) return res.status(400).json({ error: 'role and content required' });
+  const key = _guestChatKey(req, res);
+  db.prepare(`INSERT INTO ourfamily_guest_ai_history (chat_key, role, content) VALUES (?, ?, ?)`)
+    .run(key, String(role), String(content));
+  db.prepare(
+    `DELETE FROM ourfamily_guest_ai_history WHERE chat_key = ? AND id NOT IN
+       (SELECT id FROM ourfamily_guest_ai_history WHERE chat_key = ? ORDER BY created_at DESC, id DESC LIMIT ?)`
+  ).run(key, key, GUEST_CHAT_MAX);
+  res.json({ ok: true });
+});
+
+router.delete('/ai/history', (req, res, next) => {
+  if (!req.user?.ourfamilyGuest) return next();
+  db.prepare(`DELETE FROM ourfamily_guest_ai_history WHERE chat_key = ?`).run(_guestChatKey(req, res));
+  res.json({ ok: true });
+});
 
 // ── A visitor's name (lib/community.js) ────────────────────────────────
 // Body: { name }. Kept in a cookie in this browser; DELETE forgets it.

@@ -306,10 +306,16 @@
         // ── Read tools ───────────────────────────────────────────────
         case 'get_recipes': {
           try {
-            const all = await NtApi.getRecipes();
+            // ourfamily fork: everyone's recipes, with owner + household,
+            // filterable by owner/household, and no 100-row cap.
+            const all = await _allRecipes(!!args?.mine_only);
             const q   = foldText(args?.query).trim();
             const cat = foldText(args?.category).trim();
+            const own = foldText(args?.owner).trim();
+            const hh  = String(args?.household ?? '').trim();
             const favOnly = !!args?.favorite;
+            const [people, hhs] = await Promise.all([_peopleById(), _householdsSafe()]);
+            const hhByRecipe = _householdByRecipe(hhs);
             let filtered = all;
             if (q) filtered = filtered.filter(r =>
               foldText(r.name).includes(q) ||
@@ -319,7 +325,68 @@
               foldText(r.category?.name) === cat ||
               foldText(r.category?.slug) === cat);
             if (favOnly) filtered = filtered.filter(r => !!r.favorite);
-            return filtered.slice(0, 100).map(_summariseRecipe);
+            if (own) filtered = filtered.filter(r => _ownerNames(r, people).includes(own));
+            if (hh) {
+              if (foldText(hh) === 'none') filtered = filtered.filter(r => !hhByRecipe.has(r.id));
+              else {
+                const target = _findHousehold(hhs, hh);
+                if (!target) return { error: `No household called "${hh}"`, households: hhs.map(h => h.name) };
+                filtered = filtered.filter(r => hhByRecipe.get(r.id)?.id === target.id);
+              }
+            }
+            const total = filtered.length;
+            const offset = Math.max(0, parseInt(args?.offset, 10) || 0);
+            const limit = parseInt(args?.limit, 10) > 0 ? parseInt(args.limit, 10) : Infinity;
+            const page = filtered.slice(offset, offset + limit).map(r => {
+              const extra = {
+                owner: _ownerName(r, people),
+                household: hhByRecipe.get(r.id)?.name || null,
+              };
+              return args?.brief ? { id: r.id, name: r.name, ...extra } : { ..._summariseRecipe(r), ...extra };
+            });
+            if (own && total === 0) {
+              const owners = [...new Set(all.map(r => _ownerName(r, people)).filter(Boolean))];
+              return { total: 0, recipes: [], note: `No recipes made by "${args.owner}". Owners found: ${owners.join(', ')}` };
+            }
+            return { total, returned: page.length, offset, recipes: page };
+          } catch (e) { return { error: e.message || 'Failed' }; }
+        }
+        case 'list_households': {
+          try {
+            const hhs = await _households();
+            return hhs.map(h => ({
+              id: h.id, name: h.name, owner: h.owner_name || null,
+              members: (h.members || []).map(m => m.name),
+              recipe_count: (h.recipe_ids || []).length,
+              can_use: !!h.can_use,
+            }));
+          } catch (e) { return { error: e.message || 'Households are not available here' }; }
+        }
+        case 'set_recipe_household': {
+          try {
+            const ids = [...new Set((Array.isArray(args?.recipe_ids) ? args.recipe_ids : [args?.recipe_ids])
+              .map(x => parseInt(x, 10)).filter(Number.isFinite))];
+            if (!ids.length) return { error: 'recipe_ids required' };
+            const want = String(args?.household ?? '').trim();
+            let target = null;
+            if (want && foldText(want) !== 'none') {
+              const hhs = await _households();
+              target = _findHousehold(hhs, want);
+              if (!target) return { error: `No household called "${want}"`, households: hhs.map(h => h.name) };
+              if (!target.can_use) return { error: `You can't use the "${target.name}" household. Join it first.` };
+            }
+            const failed = [];
+            let moved = 0;
+            // A few at a time so a few hundred recipes don't flood the server.
+            for (let i = 0; i < ids.length; i += 8) {
+              await Promise.all(ids.slice(i, i + 8).map(async id => {
+                try {
+                  await NtApi.put(`/api/community/recipes/${id}/household`, { household_id: target ? target.id : null });
+                  moved++;
+                } catch (e) { failed.push({ id, error: e.message || 'Failed' }); }
+              }));
+            }
+            return { ok: failed.length === 0, household: target ? target.name : null, moved, failed };
           } catch (e) { return { error: e.message || 'Failed' }; }
         }
         case 'list_recipe_categories': {
@@ -628,6 +695,51 @@
     });
   });
 
+  // ── ourfamily fork: helpers for owner / household tools ─────────────
+  // The user's own recipes plus everyone else's they can see (community
+  // mode puts those in /shared-with-me), without duplicates.
+  async function _allRecipes(mineOnly = false) {
+    const own = await NtApi.getRecipes();
+    if (mineOnly) return own;
+    let others = [];
+    try { others = await NtApi.getRecipesSharedWithMe(); } catch {}
+    const seen = new Set(own.map(r => r.id));
+    return own.concat(others.filter(r => !seen.has(r.id) && seen.add(r.id)));
+  }
+  async function _households() {
+    const r = await NtApi.get('/api/community/households');
+    return r?.households || [];
+  }
+  async function _householdsSafe() {
+    try { return await _households(); } catch { return []; }
+  }
+  function _householdByRecipe(hhs) {
+    const map = new Map();
+    for (const h of hhs) for (const id of h.recipe_ids || []) map.set(id, h);
+    return map;
+  }
+  function _findHousehold(hhs, want) {
+    const s = String(want).trim();
+    if (/^\d+$/.test(s)) { const h = hhs.find(x => x.id === Number(s)); if (h) return h; }
+    const f = foldText(s);
+    return hhs.find(h => foldText(h.name) === f) || null;
+  }
+  async function _peopleById() {
+    try {
+      const rows = await NtApi.get('/api/community/people');
+      return new Map((rows || []).map(p => [p.id, p.name]));
+    } catch { return new Map(); }
+  }
+  // Every name the owning account goes by, folded for matching.
+  function _ownerNames(r, people) {
+    const names = [people.get(r.user_id), r.created_by_username, r.shared_by,
+      String(r.created_by_username || '').split('@')[0]];
+    return names.filter(Boolean).map(n => foldText(n).trim());
+  }
+  function _ownerName(r, people) {
+    return people.get(r.user_id) || r.shared_by || String(r.created_by_username || '').split('@')[0] || null;
+  }
+
   function _summariseRecipe(r) {
     return {
       id: r.id,
@@ -687,6 +799,8 @@ You have tool access to the user's recipe library, pantry, cook diary, shopping 
 - "I'm out of butter" → call get_pantry with query='butter' to find the id, then set_pantry_stock with in_stock=false
 - "Plan tacos for Friday" → call get_recipes to find the recipe, then plan_cook with that date
 - "What are my favorites?" / "Pick a favorite for tonight" → call get_recipes and filter where favorite is true
+- "Move every recipe the Family account made into the Family household" → get_recipes with owner='Family' and brief=true (it returns ALL matches), then ONE set_recipe_household call with every id and household='Family'. Report how many moved and any failures. Use list_households if you need to check household names.
+- get_recipes searches everyone's recipes in the family recipe box, not only the user's own; each result has owner and household.
 
 When you write to the user's data, summarise what you did briefly and concretely (e.g. "Logged 'Spaghetti Bolognese' as cooked today, count is now 7"). Keep replies short and actionable. Use the user's preferred units. If a tool returns { error: ... }, tell the user what went wrong and how to fix it.`;
   }

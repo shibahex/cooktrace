@@ -20,6 +20,11 @@ plus a "community mode" for a single family recipe box.
   the sidebar. The box offers the names visitors have already used, so
   regulars tap theirs. A name that matches an account's name, nickname or
   username is refused, so nobody can post as someone who has an account.
+- **Each guest has their own Trace chat.** Guests share one account, so
+  their Trace chat history is kept per browser instead (a random id in the
+  `ct_guest_chat` cookie, table `ourfamily_guest_ai_history`), handled in
+  `server/routes/community.js` ahead of upstream's `/api/ai/history`.
+  Signed-in accounts keep their own history as before.
 - **Merge names into accounts.** The **Names** page (sidebar, `#/names`, and Settings → Names)
   lists every name visitors have used, with how many recipes, comments
   and cooks each has. Pick an account and press Merge to move all of it
@@ -145,7 +150,7 @@ name are listed in `NEEDS_NAME` in `server/lib/community.js`.
 Small edits to upstream files, each marked with an `ourfamily fork` comment:
 `server/index.js`, `server/routes/auth.js`, `src/stores/auth.js`,
 `src/App.svelte`, `src/components/layout/Sidebar.svelte`, `src/routes/Settings.svelte` (Names, Households, Permissions), `src/routes/RecipeEditor.svelte` (Household field), `src/routes/Wizard.svelte`, `src/stores/settings.js` (header gradient off by default),
-`src/routes/{Login,Recipes,RecipeView}.svelte`, `server/routes/full-backup.js`, `server/lib/scheduler.js` and `src/components/settings/SettingsBackup.svelte` (SMB copies), `Dockerfile` (`samba-client`).
+`src/routes/{Login,Recipes,RecipeView}.svelte`, `server/routes/full-backup.js`, `server/lib/scheduler.js` and `src/components/settings/SettingsBackup.svelte` (SMB copies), `Dockerfile` (`samba-client`), `src/lib/aiChat.js` and `src/components/ai/Trace.svelte` (Trace: no tool-round cap; `get_recipes` covers everyone's recipes with owner/household filters and no 100-row cap; new `list_households` and `set_recipe_household` tools).
 
 To list them: `git grep -n "ourfamily fork"`.
 

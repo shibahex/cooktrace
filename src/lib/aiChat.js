@@ -10,7 +10,7 @@
  *   1. Send messages + tool definitions to the model
  *   2. If model responds with tool_use, execute via the registered
  *      handler and feed results back
- *   3. Repeat up to MAX_ROUNDS, then return text
+ *   3. Repeat until the model answers without calling a tool
  *
  * The tool catalog is defined alongside the executor in this file
  * (see TOOLS below). Trace.svelte owns the executor implementation
@@ -52,15 +52,26 @@ export const TOOLS = [
   // Read tools
   {
     name: 'get_recipes',
-    description: "Get the user's recipe library. Returns each recipe's id, name, description, image, servings, prep+cook minutes, rating, favorite, last_cooked_at, cook_count, category, tags, and pantry_match (have/need ingredients in stock). Use this to find a recipe by name or browse the library.",
+    description: "Get recipes from the family recipe box: the user's own and everyone else's that they can see. Returns each recipe's id, name, description, servings, prep+cook minutes, rating, favorite, last_cooked_at, cook_count, category, tags, pantry_match, owner (the account that made it) and household. Use this to find a recipe by name, browse the library, or find every recipe a given account made. Returns every match (no cap) unless you pass limit.",
     parameters: {
       type: 'object',
       properties: {
-        query:    { type: 'string', description: 'Optional case-insensitive name/description/tag filter. Omit to return all (capped at 100).' },
-        category: { type: 'string', description: 'Optional case-insensitive category name filter (e.g. "Desserts", "Italian"). Use list_recipe_categories first to see what exists.' },
-        favorite: { type: 'boolean', description: 'If true, only return favorited recipes.' },
+        query:     { type: 'string', description: 'Optional case-insensitive name/description/tag filter. Omit to return all.' },
+        category:  { type: 'string', description: 'Optional case-insensitive category name filter (e.g. "Desserts", "Italian"). Use list_recipe_categories first to see what exists.' },
+        favorite:  { type: 'boolean', description: 'If true, only return favorited recipes.' },
+        owner:     { type: 'string', description: 'Optional: only recipes made by this account (case-insensitive match on the account\'s name or username, e.g. "Family").' },
+        household: { type: 'string', description: 'Optional: only recipes in this household (name or id). Pass "none" for recipes in no household.' },
+        mine_only: { type: 'boolean', description: 'If true, only the signed-in user\'s own recipes. Default false (everyone\'s).' },
+        brief:     { type: 'boolean', description: 'If true, return only id, name, owner and household per recipe. Use this for bulk jobs over many recipes.' },
+        limit:     { type: 'integer', description: 'Optional maximum number of recipes to return. Omit for all.' },
+        offset:    { type: 'integer', description: 'Optional number of matches to skip (for paging with limit).' },
       },
     },
+  },
+  {
+    name: 'list_households',
+    description: "List the family's households: id, name, owner, members, how many recipes are in each, and whether the user can use it (only usable households can receive recipes). Call this to find a household's id by name before set_recipe_household.",
+    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'list_recipe_categories',
@@ -255,6 +266,19 @@ export const TOOLS = [
     },
   },
   {
+    // ourfamily fork: households for Trace (see Trace.svelte).
+    name: 'set_recipe_household',
+    description: "Move one or many recipes into a household (or out of any household). Pass every recipe id in one call: there is no limit on how many. Typical flow: get_recipes with owner + brief=true to collect ids, then one set_recipe_household call. Returns how many moved and any that failed.",
+    parameters: {
+      type: 'object',
+      properties: {
+        recipe_ids: { type: 'array', items: { type: 'integer' }, description: 'Ids of the recipes to move.' },
+        household:  { type: 'string', description: 'Target household name or id (case-insensitive name match). Pass "none" to take the recipes out of any household.' },
+      },
+      required: ['recipe_ids', 'household'],
+    },
+  },
+  {
     name: 'create_recipe',
     description: "Create a brand-new recipe from scratch in chat. Use this when the user DICTATES a recipe (typed or via voice) OR attaches a photo of a cookbook page / handwritten card and asks you to import it. For a public web URL prefer import_recipe_from_url instead — it's cleaner and grabs the publisher's metadata. Ingredients should be the grouped shape: [{ name: '', items: [{ qty: '', unit: '', name: '', note: '' }, ...] }]. Steps as [{ title: '', text: '' }].",
     parameters: {
@@ -373,9 +397,9 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
     input_schema: t.parameters,
   }));
   let currentMessages = [...messages];
-  const MAX_ROUNDS = 5;
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  // ourfamily fork: no round cap; keep going until the model stops calling tools.
+  for (;;) {
     const body = {
       model: model || AI_DEFAULT_MODELS.claude,
       max_tokens: 4096,
@@ -411,7 +435,6 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
     }
     currentMessages.push({ role: 'user', content: toolResults });
   }
-  throw new Error('Too many tool call rounds');
 }
 
 // ── OpenAI / OpenAI-compatible ─────────────────────────────────────────────
@@ -425,9 +448,9 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     { role: 'system', content: systemPrompt },
     ...messages,
   ];
-  const MAX_ROUNDS = 5;
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  // ourfamily fork: no round cap; keep going until the model stops calling tools.
+  for (;;) {
     const selectedModel = model || AI_DEFAULT_MODELS.openai;
     const body = {
       model: selectedModel,
@@ -463,7 +486,6 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
       currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
     }
   }
-  throw new Error('Too many tool call rounds');
 }
 
 // ── Google Gemini ──────────────────────────────────────────────────────────
@@ -497,8 +519,8 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
     return { role: msg.role === 'assistant' ? 'model' : 'user', parts };
   });
 
-  const MAX_ROUNDS = 5;
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  // ourfamily fork: no round cap; keep going until the model stops calling tools.
+  for (;;) {
     const body = {
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents,
@@ -528,7 +550,6 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
     }
     contents.push({ role: 'user', parts: responseParts });
   }
-  throw new Error('Too many tool call rounds');
 }
 
 // ── Tool execution ──────────────────────────────────────────────────────────
