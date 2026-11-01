@@ -39,8 +39,10 @@
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { portal } from '../../lib/portal.js';
   import { NtApi } from '../../lib/api.js';
-  import { isNative } from '../../lib/platform.js';
+  import { isNative, publicRecipeUrl } from '../../lib/platform.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler, AI_DEFAULT_MODELS } from '../../lib/aiChat.js';
+  import { currentUser } from '../../stores/auth.js';
+  import { recipeBaseOf } from '../../lib/offline-edits.js';
 
   import { foldText } from '../../lib/search-text.js';
 
@@ -302,6 +304,13 @@
     // Register the tool handler. Each tool delegates to NtApi; results
     // are JSON-stringified by aiChat.js before going back to the model.
     setToolHandler(async (name, args) => {
+      // Big or destructive changes wait for the user to press Confirm.
+      try {
+        const ask = await _confirmFor(name, args || {});
+        if (ask && !await confirmDialog({ ...ask, dangerous: true, cancelText: 'Cancel' })) {
+          return { cancelled: true, error: 'The user pressed Cancel on the confirm button. Nothing was changed. Do not retry unless they ask again.' };
+        }
+      } catch (e) { return { error: e.message || 'Failed' }; }
       switch (name) {
         // ── Read tools ───────────────────────────────────────────────
         case 'get_recipes': {
@@ -690,10 +699,549 @@
         }
 
         default:
-          return { error: `Unknown tool: ${name}` };
+          try {
+            const out = await _extraTool(name, args || {});
+            return out === undefined ? { error: `Unknown tool: ${name}` } : out;
+          } catch (e) { return { error: e.message || 'Failed' }; }
       }
     });
   });
+
+  // ── ourfamily fork: confirm before big changes ─────────────────────
+  // Returns { title, message, confirmText } when the tool call needs the
+  // user's OK, or null when it can just run.
+  const BULK_CONFIRM_AT = 6; // a bulk edit of this many recipes or more asks first
+  function _nameList(names) {
+    const shown = names.slice(0, 8).map(n => `• ${n}`).join('\n');
+    return names.length > 8 ? `${shown}\n…and ${names.length - 8} more` : shown;
+  }
+  async function _recipeNames(list) {
+    const all = await _allRecipes().catch(() => []);
+    const byId = new Map(all.map(r => [r.id, r.name]));
+    return list.map(id => byId.get(id) || `Recipe #${id}`);
+  }
+  async function _confirmFor(name, a) {
+    const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+    switch (name) {
+      case 'delete_recipes': {
+        const list = _idList(a.recipe_ids);
+        if (!list.length) return null;
+        return { title: `Delete ${n(list.length, 'recipe')}?`, message: `${_nameList(await _recipeNames(list))}\n\nThey go to the trash.`, confirmText: 'Delete' };
+      }
+      case 'update_recipes': {
+        const list = _idList(a.recipe_ids);
+        if (list.length < BULK_CONFIRM_AT) return null;
+        const what = Object.keys(a).filter(k => k !== 'recipe_ids' && a[k] !== undefined)
+          .map(k => {
+            const label = k.replace(/_/g, ' ');
+            const v = a[k];
+            if (['string', 'number', 'boolean'].includes(typeof v)) return `${label}: ${v}`;
+            if (Array.isArray(v) && v.every(x => typeof x === 'string')) return `${label}: ${v.join(', ') || '(none)'}`;
+            return label;
+          });
+        return { title: `Change ${n(list.length, 'recipe')}?`, message: `${what.join(', ')}\n\n${_nameList(await _recipeNames(list))}`, confirmText: 'Change' };
+      }
+      case 'set_recipes_hidden': {
+        const list = _idList(a.recipe_ids);
+        if (list.length < BULK_CONFIRM_AT) return null;
+        return { title: `${a.hidden ? 'Hide' : 'Unhide'} ${n(list.length, 'recipe')}?`, message: _nameList(await _recipeNames(list)), confirmText: a.hidden ? 'Hide' : 'Unhide' };
+      }
+      case 'restore_recipe_version': {
+        const [rn] = await _recipeNames([parseInt(a.recipe_id, 10)]);
+        return { title: 'Restore an earlier version?', message: `"${rn}" goes back to that version. The current copy is kept as a version.`, confirmText: 'Restore' };
+      }
+      case 'delete_cookbook': {
+        const cbs = await NtApi.getCookbooks().catch(() => []);
+        const cb = cbs.find(c => c.id === parseInt(a.cookbook_id, 10));
+        return { title: `Delete the cookbook "${cb?.name || `#${a.cookbook_id}`}"?`, message: 'The recipes in it are not deleted.', confirmText: 'Delete' };
+      }
+      case 'remove_from_cookbook': {
+        const list = _idList(a.recipe_ids);
+        if (list.length < BULK_CONFIRM_AT) return null;
+        return { title: `Take ${n(list.length, 'recipe')} out of the cookbook?`, message: _nameList(await _recipeNames(list)), confirmText: 'Remove' };
+      }
+      case 'delete_household':
+        return { title: `Delete the household "${a.household}"?`, message: 'Everyone in it loses it. Its recipes are not deleted.', confirmText: 'Delete' };
+      case 'leave_household':
+        return { title: `Leave the household "${a.household}"?`, message: '', confirmText: 'Leave' };
+      case 'remove_household_member':
+        return { title: `Remove ${a.person} from "${a.household}"?`, message: '', confirmText: 'Remove' };
+      case 'set_household_owner':
+        return { title: `Make ${a.person} the owner of "${a.household}"?`, message: 'You may lose the right to manage it.', confirmText: 'Change owner' };
+      case 'delete_recipe_category':
+        return { title: `Delete the recipe category "${a.category}"?`, message: 'Its recipes stay, with no category.', confirmText: 'Delete' };
+      case 'delete_pantry_category':
+        return { title: `Delete the pantry category "${a.category}"?`, message: 'Its items stay, uncategorized.', confirmText: 'Delete' };
+      case 'delete_tag':
+        return { title: `Remove the tag "${a.tag}" from every recipe?`, message: '', confirmText: 'Remove' };
+      case 'rename_tag':
+        return { title: `Rename the tag "${a.tag}" to "${a.new_name}" on every recipe?`, message: '', confirmText: 'Rename' };
+      case 'delete_kitchen_gear':
+        return { title: `Remove "${a.gear}" from every recipe's Kitchen Gear?`, message: '', confirmText: 'Remove' };
+      case 'delete_custom_unit':
+        return { title: `Delete the unit "${a.unit}"?`, message: '', confirmText: 'Delete' };
+      case 'delete_pantry_items': {
+        const list = _idList(a.pantry_ids);
+        if (!list.length) return null;
+        const rows = await NtApi.getPantry().catch(() => []);
+        const byId = new Map(rows.map(p => [p.id, p.name]));
+        return { title: `Delete ${n(list.length, 'pantry item')}?`, message: _nameList(list.map(id => byId.get(id) || `Item #${id}`)), confirmText: 'Delete' };
+      }
+      case 'delete_diary_entries': {
+        const list = _idList(a.entry_ids);
+        if (!list.length) return null;
+        return { title: `Delete ${n(list.length, 'diary entry').replace('entrys', 'entries')}?`, message: 'Cook counts update to match.', confirmText: 'Delete' };
+      }
+      case 'remove_shopping_items': {
+        const list = _idList(a.item_ids);
+        if (list.length < BULK_CONFIRM_AT) return null;
+        const rows = await NtApi.getShoppingList().catch(() => []);
+        const byId = new Map(rows.map(s => [s.id, s.name]));
+        return { title: `Remove ${n(list.length, 'item')} from the shopping list?`, message: _nameList(list.map(id => byId.get(id) || `Item #${id}`)), confirmText: 'Remove' };
+      }
+      case 'clear_checked_shopping':
+        return { title: 'Clear every checked-off item from the shopping list?', message: '', confirmText: 'Clear' };
+      case 'delete_recipe_comment':
+        return { title: 'Delete this comment?', message: '', confirmText: 'Delete' };
+    }
+    return null;
+  }
+
+  // ── ourfamily fork: tools for everything else (see EXTRA_TOOLS in aiChat.js)
+  function _idList(v) {
+    return [...new Set((Array.isArray(v) ? v : [v]).map(x => parseInt(x, 10)).filter(Number.isFinite))];
+  }
+  // Run fn on every id, a few at a time; returns { done, failed }.
+  async function _eachId(list, fn) {
+    const done = [], failed = [];
+    for (let i = 0; i < list.length; i += 8) {
+      await Promise.all(list.slice(i, i + 8).map(async id => {
+        try { done.push(await fn(id)); }
+        catch (e) { failed.push({ id, error: e.message || 'Failed' }); }
+      }));
+    }
+    return { done, failed };
+  }
+  // A row by id or by (folded) name / slug.
+  function _pick(rows, want, key = 'name') {
+    const s = String(want ?? '').trim();
+    if (!s) return null;
+    if (/^\d+$/.test(s)) { const r = rows.find(x => x.id === Number(s)); if (r) return r; }
+    const f = foldText(s);
+    return rows.find(r => foldText(r[key]) === f || (r.slug && foldText(r.slug) === f)) || null;
+  }
+  async function _recipeCategory(want) {
+    const cats = await NtApi.getRecipeCategories();
+    const c = _pick(cats || [], want);
+    if (!c) throw new Error(`No recipe category called "${want}". Categories: ${(cats || []).map(x => x.name).join(', ') || 'none'}. Create it with create_recipe_category first.`);
+    return c;
+  }
+  async function _pantryCategory(want) {
+    const cats = await NtApi.getPantryCategories();
+    const c = _pick(cats || [], want);
+    if (!c) throw new Error(`No pantry category called "${want}". Categories: ${(cats || []).map(x => x.name).join(', ') || 'none'}.`);
+    return c;
+  }
+  async function _household(want) {
+    const h = _findHousehold(await _households(), want);
+    if (!h) throw new Error(`No household called "${want}"`);
+    return h;
+  }
+  async function _person(want) {
+    const people = await NtApi.get('/api/community/people');
+    const p = _pick(people || [], want);
+    if (!p) throw new Error(`No person called "${want}". People: ${(people || []).map(x => x.name).join(', ')}`);
+    return p;
+  }
+  const _isNone = v => v == null || v === '' || foldText(String(v)) === 'none';
+  // Case-insensitive list edit: replace, then add, then remove.
+  function _editList(current, { set, add, remove }) {
+    let out = Array.isArray(set) ? set.map(String) : [...(current || [])];
+    for (const a of Array.isArray(add) ? add : []) {
+      if (!out.some(x => foldText(x) === foldText(a))) out.push(String(a));
+    }
+    const rm = new Set((Array.isArray(remove) ? remove : []).map(x => foldText(x)));
+    if (rm.size) out = out.filter(x => !rm.has(foldText(x)));
+    return out.map(s => s.trim()).filter(Boolean);
+  }
+  async function _smartFilter(a) {
+    const f = {};
+    if (a.category) f.category_id = (await _recipeCategory(a.category)).id;
+    if (Array.isArray(a.tags) && a.tags.length) f.tags = a.tags;
+    if (a.favorites_only) f.favorites_only = true;
+    if (Number.isFinite(a.min_rating)) f.min_rating = a.min_rating;
+    if (Number.isFinite(a.max_total_minutes)) f.max_total_minutes = a.max_total_minutes;
+    return f;
+  }
+  const _hasSmart = a => ['category', 'tags', 'favorites_only', 'min_rating', 'max_total_minutes'].some(k => a[k] !== undefined);
+
+  const RECIPE_SIMPLE = ['name', 'description', 'servings', 'yield_text', 'prep_minutes', 'cook_minutes',
+    'rest_minutes', 'ingredients', 'steps', 'notes', 'source_url', 'video_url'];
+
+  async function _extraTool(name, a) {
+    switch (name) {
+      // ── Recipes ────────────────────────────────────────────────────
+      case 'update_recipes': {
+        const list = _idList(a.recipe_ids);
+        if (!list.length) return { error: 'recipe_ids required' };
+        let cat;
+        if (a.category !== undefined) cat = _isNone(a.category) ? null : await _recipeCategory(a.category);
+        const me = $currentUser?.id ?? null;
+        const people = await _peopleById();
+        const updated = [], skipped = [], failed = [];
+        await _eachId(list, async id => {
+          try {
+            const r = await NtApi.getRecipe(id);
+            const next = { ...r };
+            const changed = [];
+            const set = (f, v) => { next[f] = v; changed.push(f); };
+            for (const f of RECIPE_SIMPLE) if (a[f] !== undefined) set(f, a[f]);
+            if (a.total_minutes !== undefined) set('total_minutes', a.total_minutes > 0 ? a.total_minutes : null);
+            if (a.favorite !== undefined) set('favorite', !!a.favorite);
+            if (a.rating !== undefined) set('rating', a.rating > 0 ? Math.min(5, a.rating) : null);
+            if (a.tags !== undefined || a.add_tags || a.remove_tags) {
+              set('tags', _editList(r.tags, { set: a.tags, add: a.add_tags, remove: a.remove_tags }));
+            }
+            if (a.tools !== undefined || a.add_tools || a.remove_tools) {
+              set('tools', _editList(r.tools, { set: a.tools, add: a.add_tools, remove: a.remove_tools }));
+            }
+            if (cat !== undefined) {
+              // Categories are the owner's; the server keeps the owner's
+              // choice on anyone else's save, so say so instead.
+              if (r.user_id != null && r.user_id !== me) {
+                skipped.push({ id, name: r.name, reason: `category not changed: it belongs to ${_ownerName(r, people) || 'another account'}, only they can change its category` });
+              } else {
+                set('category_id', cat ? cat.id : null);
+              }
+            }
+            if (!changed.length) return;
+            const saved = await NtApi.updateRecipe(id, { ...next, _base: recipeBaseOf(r), _changed: changed });
+            updated.push({ id, name: saved?.name || r.name, ...(saved?.kept === 'server' ? { note: 'a newer edit from elsewhere was kept' } : {}) });
+          } catch (e) { failed.push({ id, error: e.message || 'Failed' }); }
+        });
+        return { ok: failed.length === 0, updated: updated.length, recipes: updated, skipped, failed };
+      }
+      case 'delete_recipes': {
+        const list = _idList(a.recipe_ids);
+        if (!list.length) return { error: 'recipe_ids required' };
+        const { done, failed } = await _eachId(list, async id => { await NtApi.deleteRecipe(id); return id; });
+        return { ok: failed.length === 0, deleted: done.length, failed };
+      }
+      case 'set_recipes_hidden': {
+        const list = _idList(a.recipe_ids);
+        if (!list.length) return { error: 'recipe_ids required' };
+        const { done, failed } = await _eachId(list, id =>
+          NtApi.put(`/api/community/recipes/${id}/hidden`, { hidden: !!a.hidden }));
+        return { ok: failed.length === 0, hidden: !!a.hidden, changed: done.length, failed };
+      }
+      case 'import_recipe_from_text': {
+        if (!a.text) return { error: 'text required' };
+        const res = await NtApi.importRecipe({
+          text: String(a.text), addToPantry: a.add_to_pantry !== false, applyTags: a.apply_tags === true,
+        });
+        const rows = res?.recipes || (res?.id ? [res] : []);
+        return { ok: rows.length > 0, recipes: rows.map(r => ({ id: r.id, name: r.name })), skipped: res?.skipped || [] };
+      }
+      case 'get_recipe_versions': {
+        const rows = await NtApi.getRecipeVersions(parseInt(a.recipe_id, 10));
+        return (rows || []).map(v => ({
+          id: v.id, reason: v.reason, created_at: v.created_at, edited_by: v.edited_by_name || null,
+          name: v.data?.name || null,
+        }));
+      }
+      case 'restore_recipe_version': {
+        const r = await NtApi.restoreRecipeVersion(parseInt(a.recipe_id, 10), parseInt(a.version_id, 10));
+        return { ok: true, recipe: { id: r.id, name: r.name } };
+      }
+      case 'recipe_share_link': {
+        const id = parseInt(a.recipe_id, 10);
+        if (a.off) { await NtApi.revokeRecipeShareToken(id); return { ok: true, link: null }; }
+        const res = await NtApi.mintRecipeShareToken(id);
+        return { ok: true, link: publicRecipeUrl(res.share_token) };
+      }
+      case 'get_recipe_comments': {
+        const rows = await NtApi.getRecipeComments(parseInt(a.recipe_id, 10));
+        return (rows || []).map(c => ({
+          id: c.id, parent_id: c.parent_id ?? null,
+          author: c.created_by_full_name || c.created_by_username || null,
+          text: c.body, created_at: c.created_at,
+        }));
+      }
+      case 'add_recipe_comment': {
+        if (!a.text) return { error: 'text required' };
+        const c = await NtApi.postRecipeComment(parseInt(a.recipe_id, 10), String(a.text), a.reply_to ?? null);
+        return { ok: true, comment_id: c?.id ?? null };
+      }
+      case 'edit_recipe_comment': {
+        await NtApi.updateRecipeComment(parseInt(a.recipe_id, 10), parseInt(a.comment_id, 10), String(a.text || ''));
+        return { ok: true };
+      }
+      case 'delete_recipe_comment': {
+        await NtApi.deleteRecipeComment(parseInt(a.recipe_id, 10), parseInt(a.comment_id, 10));
+        return { ok: true };
+      }
+
+      // ── Recipe categories, tags, Kitchen Gear ──────────────────────
+      case 'create_recipe_category': {
+        if (!a.name) return { error: 'name required' };
+        const c = await NtApi.createRecipeCategory({ name: String(a.name).trim(), color: a.color || null });
+        return { ok: true, category: { id: c.id, name: c.name } };
+      }
+      case 'update_recipe_category': {
+        const c = await _recipeCategory(a.category);
+        const body = {};
+        if (a.name) body.name = String(a.name).trim();
+        if (a.color !== undefined) body.color = a.color || null;
+        const row = await NtApi.updateRecipeCategory(c.id, body);
+        return { ok: true, category: { id: row.id, name: row.name, color: row.color || null } };
+      }
+      case 'delete_recipe_category': {
+        const c = await _recipeCategory(a.category);
+        await NtApi.deleteRecipeCategory(c.id);
+        return { ok: true, deleted: c.name };
+      }
+      case 'reorder_recipe_categories': {
+        const cats = await NtApi.getRecipeCategories();
+        const order = [];
+        for (const w of Array.isArray(a.categories) ? a.categories : []) {
+          const c = _pick(cats, w);
+          if (!c) return { error: `No recipe category called "${w}"` };
+          if (!order.includes(c.id)) order.push(c.id);
+        }
+        // Any left out keep their place after the ones named.
+        for (const c of cats) if (!order.includes(c.id)) order.push(c.id);
+        await NtApi.reorderRecipeCategories(order);
+        return { ok: true, order: order.map(id => cats.find(c => c.id === id).name) };
+      }
+      case 'list_tags':          return await NtApi.getRecipeTags();
+      case 'list_kitchen_gear':  return await NtApi.getRecipeTools();
+      case 'rename_tag': {
+        if (!a.tag || !a.new_name) return { error: 'tag and new_name required' };
+        return { ok: true, ...(await NtApi.renameRecipeTag(String(a.tag), String(a.new_name).trim())) };
+      }
+      case 'delete_tag': {
+        if (!a.tag) return { error: 'tag required' };
+        return { ok: true, ...(await NtApi.deleteRecipeTag(String(a.tag))) };
+      }
+      case 'rename_kitchen_gear': {
+        if (!a.gear || !a.new_name) return { error: 'gear and new_name required' };
+        return { ok: true, ...(await NtApi.renameRecipeTool(String(a.gear), String(a.new_name).trim())) };
+      }
+      case 'delete_kitchen_gear': {
+        if (!a.gear) return { error: 'gear required' };
+        return { ok: true, ...(await NtApi.deleteRecipeTool(String(a.gear))) };
+      }
+
+      // ── Pantry ─────────────────────────────────────────────────────
+      case 'update_pantry_item': {
+        const id = parseInt(a.pantry_id, 10);
+        if (!Number.isFinite(id)) return { error: 'pantry_id required' };
+        const body = {};
+        for (const f of ['name', 'brand', 'quantity', 'unit', 'notes', 'barcode', 'in_stock', 'serving_size', 'serving_unit']) {
+          if (a[f] !== undefined) body[f] = a[f];
+        }
+        if (a.expires_on !== undefined) body.expires_on = a.expires_on || null;
+        if (a.category !== undefined) body.category_id = _isNone(a.category) ? null : (await _pantryCategory(a.category)).id;
+        if (!Object.keys(body).length) return { error: 'Nothing to change' };
+        const row = await NtApi.updatePantryItem(id, body);
+        return { ok: true, pantry_item: {
+          id: row.id, name: row.name, brand: row.brand || null, in_stock: !!row.in_stock,
+          quantity: row.quantity ?? null, unit: row.unit ?? null, expires_on: row.expires_on ?? null,
+          category: row.category?.name || null,
+        } };
+      }
+      case 'delete_pantry_items': {
+        const list = _idList(a.pantry_ids);
+        if (!list.length) return { error: 'pantry_ids required' };
+        const { done, failed } = await _eachId(list, async id => { await NtApi.deletePantryItem(id); return id; });
+        return { ok: failed.length === 0, deleted: done.length, failed };
+      }
+      case 'get_pantry_item_recipes': {
+        const rows = await NtApi.getPantryItemRecipes(parseInt(a.pantry_id, 10));
+        return (rows || []).map(r => ({ id: r.id, name: r.name }));
+      }
+      case 'create_pantry_category': {
+        if (!a.name) return { error: 'name required' };
+        const c = await NtApi.createPantryCategory({
+          name: String(a.name).trim(), icon: a.icon || null, color: a.color || null, default_aisle: a.default_aisle || null,
+        });
+        return { ok: true, category: { id: c.id, name: c.name } };
+      }
+      case 'update_pantry_category': {
+        const c = await _pantryCategory(a.category);
+        const body = {};
+        if (a.name) body.name = String(a.name).trim();
+        for (const f of ['icon', 'color', 'default_aisle']) if (a[f] !== undefined) body[f] = a[f] || null;
+        const row = await NtApi.updatePantryCategory(c.id, body);
+        return { ok: true, category: { id: row.id, name: row.name } };
+      }
+      case 'delete_pantry_category': {
+        const c = await _pantryCategory(a.category);
+        await NtApi.deletePantryCategory(c.id);
+        return { ok: true, deleted: c.name };
+      }
+      case 'list_units': {
+        const u = await NtApi.getUnits();
+        return {
+          custom: (u?.custom || []).map(c => ({ id: c.id, abbr: c.abbr, full_name: c.full_name, category: c.category })),
+          builtin_turned_off: u?.disabled || [],
+          usage: u?.usage || {},
+        };
+      }
+      case 'add_custom_unit': {
+        if (!a.abbr) return { error: 'abbr required' };
+        const row = await NtApi.createCustomUnit({ abbr: String(a.abbr).trim(), full_name: a.full_name || undefined, category: a.category || null });
+        return { ok: true, unit: { id: row.id, abbr: row.abbr, full_name: row.full_name } };
+      }
+      case 'delete_custom_unit': {
+        const u = await NtApi.getUnits();
+        const s = String(a.unit ?? '').trim();
+        const row = (u?.custom || []).find(c => String(c.id) === s || c.abbr.toLowerCase() === s.toLowerCase());
+        if (!row) return { error: `No custom unit "${s}"` };
+        await NtApi.deleteCustomUnit(row.id);
+        return { ok: true, deleted: row.abbr };
+      }
+      case 'set_builtin_unit_enabled': {
+        if (!a.abbr) return { error: 'abbr required' };
+        await NtApi.toggleBuiltinUnit(String(a.abbr).trim(), a.enabled === false);
+        return { ok: true, abbr: a.abbr, enabled: a.enabled !== false };
+      }
+
+      // ── Shopping list ──────────────────────────────────────────────
+      case 'update_shopping_item': {
+        const id = parseInt(a.item_id, 10);
+        const body = {};
+        for (const f of ['name', 'quantity', 'unit', 'aisle', 'checked']) if (a[f] !== undefined) body[f] = a[f];
+        const row = await NtApi.updateShoppingItem(id, body);
+        return { ok: true, item: { id: row.id, name: row.name, quantity: row.quantity ?? null, unit: row.unit ?? null, aisle: row.aisle ?? null, checked: !!row.checked } };
+      }
+      case 'check_shopping_items': {
+        const list = _idList(a.item_ids);
+        if (!list.length) return { error: 'item_ids required' };
+        const checked = a.checked !== false;
+        const { done, failed } = await _eachId(list, async id => { await NtApi.toggleShoppingChecked(id, checked); return id; });
+        return { ok: failed.length === 0, checked, changed: done.length, failed };
+      }
+      case 'remove_shopping_items': {
+        const list = _idList(a.item_ids);
+        if (!list.length) return { error: 'item_ids required' };
+        const { done, failed } = await _eachId(list, async id => { await NtApi.deleteShoppingItem(id); return id; });
+        return { ok: failed.length === 0, removed: done.length, failed };
+      }
+      case 'clear_checked_shopping':
+        return { ok: true, ...(await NtApi.clearCheckedShopping()) };
+      case 'clear_shopping_for_recipe':
+        return { ok: true, ...(await NtApi.clearShoppingByRecipe(parseInt(a.recipe_id, 10))) };
+      case 'shop_for_recipe':
+        return { ok: true, ...(await NtApi.shopFromRecipe(parseInt(a.recipe_id, 10), { only_missing: a.only_missing !== false })) };
+      case 'shop_for_plan': {
+        if (!a.from || !a.to) return { error: 'from and to required (YYYY-MM-DD)' };
+        return { ok: true, ...(await NtApi.shopFromPlan({ from: a.from, to: a.to, only_missing: a.only_missing !== false })) };
+      }
+
+      // ── Cook diary ─────────────────────────────────────────────────
+      case 'update_diary_entry': {
+        const id = parseInt(a.entry_id, 10);
+        if (!Number.isFinite(id)) return { error: 'entry_id required' };
+        const body = {};
+        for (const f of ['date', 'kind', 'notes', 'servings']) if (a[f] !== undefined) body[f] = a[f];
+        if (a.meal_type !== undefined) body.meal_type = a.meal_type || null;
+        if (a.rating !== undefined) body.rating = a.rating > 0 ? a.rating : null;
+        await NtApi.updateDiaryEntry(id, body);
+        return { ok: true, entry_id: id, changed: Object.keys(body) };
+      }
+      case 'delete_diary_entries': {
+        const list = _idList(a.entry_ids);
+        if (!list.length) return { error: 'entry_ids required' };
+        const { done, failed } = await _eachId(list, async id => { await NtApi.deleteDiaryEntry(id); return id; });
+        return { ok: failed.length === 0, deleted: done.length, failed };
+      }
+      case 'get_cook_stats':
+        return await NtApi.getCookDiaryStats();
+
+      // ── Cookbooks ──────────────────────────────────────────────────
+      case 'create_cookbook': {
+        if (!a.name) return { error: 'name required' };
+        const isSmart = a.smart === true || (a.smart !== false && _hasSmart(a));
+        const cb = await NtApi.createCookbook({
+          name: String(a.name).trim(), description: a.description || null,
+          is_smart: isSmart, ...(isSmart ? { smart_filter: await _smartFilter(a) } : {}),
+        });
+        return { ok: true, cookbook: { id: cb.id, name: cb.name, is_smart: !!cb.is_smart } };
+      }
+      case 'update_cookbook': {
+        const id = parseInt(a.cookbook_id, 10);
+        const body = {};
+        if (a.name) body.name = String(a.name).trim();
+        if (a.description !== undefined) body.description = a.description || null;
+        if (a.smart !== undefined) body.is_smart = !!a.smart;
+        if (a.smart !== false && _hasSmart(a)) { body.is_smart = true; body.smart_filter = await _smartFilter(a); }
+        const cb = await NtApi.updateCookbook(id, body);
+        return { ok: true, cookbook: { id: cb.id, name: cb.name, is_smart: !!cb.is_smart, smart_filter: cb.smart_filter || null } };
+      }
+      case 'delete_cookbook':
+        await NtApi.deleteCookbook(parseInt(a.cookbook_id, 10));
+        return { ok: true };
+      case 'remove_from_cookbook': {
+        const cid = parseInt(a.cookbook_id, 10);
+        const list = _idList(a.recipe_ids);
+        if (!list.length) return { error: 'recipe_ids required' };
+        const { done, failed } = await _eachId(list, async id => { await NtApi.removeRecipeFromCookbook(cid, id); return id; });
+        return { ok: failed.length === 0, removed: done.length, failed };
+      }
+
+      // ── Households ─────────────────────────────────────────────────
+      case 'list_people':
+        return await NtApi.get('/api/community/people');
+      case 'create_household': {
+        if (!a.name) return { error: 'name required' };
+        const body = { name: String(a.name).trim() };
+        if (a.join_policy) body.join_policy = a.join_policy === 'invite' ? 'invite' : 'open';
+        if (a.guests !== undefined) body.guests = !!a.guests;
+        return { ok: true, household: await NtApi.post('/api/community/households', body) };
+      }
+      case 'update_household': {
+        const h = await _household(a.household);
+        const body = {};
+        if (a.name) body.name = String(a.name).trim();
+        if (a.join_policy) body.join_policy = a.join_policy === 'invite' ? 'invite' : 'open';
+        if (a.guests !== undefined) body.guests = !!a.guests;
+        await NtApi.put(`/api/community/households/${h.id}`, body);
+        return { ok: true, household: body.name || h.name };
+      }
+      case 'delete_household': {
+        const h = await _household(a.household);
+        await NtApi.del(`/api/community/households/${h.id}`);
+        return { ok: true, deleted: h.name };
+      }
+      case 'join_household': {
+        const h = await _household(a.household);
+        await NtApi.post(`/api/community/households/${h.id}/join`, {});
+        return { ok: true, joined: h.name };
+      }
+      case 'leave_household': {
+        const h = await _household(a.household);
+        await NtApi.post(`/api/community/households/${h.id}/leave`, {});
+        return { ok: true, left: h.name };
+      }
+      case 'add_household_member': {
+        const [h, p] = await Promise.all([_household(a.household), _person(a.person)]);
+        await NtApi.post(`/api/community/households/${h.id}/members`, { user_id: p.id });
+        return { ok: true, household: h.name, added: p.name };
+      }
+      case 'remove_household_member': {
+        const [h, p] = await Promise.all([_household(a.household), _person(a.person)]);
+        await NtApi.del(`/api/community/households/${h.id}/members/${p.id}`);
+        return { ok: true, household: h.name, removed: p.name };
+      }
+      case 'set_household_owner': {
+        const [h, p] = await Promise.all([_household(a.household), _person(a.person)]);
+        await NtApi.put(`/api/community/households/${h.id}/owner`, { user_id: p.id });
+        return { ok: true, household: h.name, owner: p.name };
+      }
+    }
+    return undefined;
+  }
 
   // ── ourfamily fork: helpers for owner / household tools ─────────────
   // The user's own recipes plus everyone else's they can see (community
@@ -801,6 +1349,13 @@ You have tool access to the user's recipe library, pantry, cook diary, shopping 
 - "What are my favorites?" / "Pick a favorite for tonight" → call get_recipes and filter where favorite is true
 - "Move every recipe the Family account made into the Family household" → get_recipes with owner='Family' and brief=true (it returns ALL matches), then ONE set_recipe_household call with every id and household='Family'. Report how many moved and any failures. Use list_households if you need to check household names.
 - get_recipes searches everyone's recipes in the family recipe box, not only the user's own; each result has owner and household.
+- "Make everything in Main Dishes Dinner" / "put these in Dinner" → this is about the recipes' CATEGORY, not the diary. Find the recipes (get_recipes with category='Main Dishes', or get_cookbook if Main Dishes is a cookbook), check the target exists with list_recipe_categories (create_recipe_category if the user wants a new one), then ONE update_recipes call with every id and category='Dinner'. Report how many changed and any skipped.
+- Any change to a recipe (category, tags, favorite, rating, servings, times, name, ingredients, steps, notes) → update_recipes. It takes many ids at once, so never loop one call per recipe.
+- Rename or merge a tag across the user's own recipes → rename_tag. To change tags on recipes made by other accounts → update_recipes with add_tags / remove_tags.
+- "Undo that" after a wrong log_cook or plan_cook → get_diary for that date, then delete_diary_entries.
+- Organising: recipe categories (create/update/delete/reorder_recipe_categories), tags, Kitchen Gear, pantry categories, units, cookbooks (create_cookbook, also smart ones), households: there is a tool for each.
+
+Only call log_cook when the user says they cooked or ate something. Only delete things (recipes, pantry items, cookbooks, categories, households, diary entries, comments) when the user clearly asks. Deletes and other big changes pop up a Confirm button for the user, so call the tool directly instead of asking "are you sure?" in chat. If a tool comes back with cancelled: true, the user said no: tell them nothing was changed and don't call it again.
 
 When you write to the user's data, summarise what you did briefly and concretely (e.g. "Logged 'Spaghetti Bolognese' as cooked today, count is now 7"). Keep replies short and actionable. Use the user's preferred units. If a tool returns { error: ... }, tell the user what went wrong and how to fix it.`;
   }

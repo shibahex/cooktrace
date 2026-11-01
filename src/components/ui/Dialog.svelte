@@ -89,6 +89,8 @@
     color: var(--text-2);
     line-height: 1.5;
     margin-bottom: 20px;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
   }
   .dialog-actions {
     display: flex;
