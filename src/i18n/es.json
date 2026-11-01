@@ -41,7 +41,8 @@
       "empty_title": "Aún no hay recetas",
       "empty_desc": "Agrega tu primera receta para empezar.",
       "create_cta": "Crear una receta",
-      "no_match": "Ninguna receta coincide con \"{q}\"."
+      "no_match": "Ninguna receta coincide con \"{q}\".",
+      "no_match_filter": "Ninguna receta coincide con estos filtros."
     },
     "pantry": {
       "title": "Despensa",

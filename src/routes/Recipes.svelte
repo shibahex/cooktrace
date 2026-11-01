@@ -750,6 +750,17 @@
     return _applySort([...list], $recipesSort);
   })();
 
+  // ourfamily fork: only show category chips that have recipes in the
+  // main list. The active chip stays so a ?category= link still shows it.
+  $: usedCategories = (() => {
+    const used = new Set();
+    for (const r of recipes) if (r.category?.slug) used.add(r.category.slug);
+    if ($mixSharedIntoRecipes) {
+      for (const r of sharedRecipes) if (r.category?.slug) used.add(r.category.slug);
+    }
+    return categories.filter(c => used.has(c.slug) || c.slug === activeCategorySlug);
+  })();
+
   // ourfamily fork: the Recipes count includes what's mixed in from Shared.
   $: mainCount = $mixSharedIntoRecipes
     ? new Set([...recipes, ...sharedRecipes].map(r => r.id)).size
@@ -1371,7 +1382,7 @@
               on:click={() => setCategoryFilter('')}
               aria-pressed={!activeCategorySlug}
             >All</button>
-            {#each categories as c (c.id)}
+            {#each usedCategories as c (c.id)}
               {@const isActive = activeCategorySlug === c.slug}
               <button class="cat-chip"
                 class:active={isActive}
@@ -1625,7 +1636,7 @@
     {:else if filtered.length === 0}
       <div class="state empty" in:fade={{ duration: 120 }}>
         <span class="material-symbols-rounded empty-icon">search_off</span>
-        <p>{$_('routes.recipes.no_match', { values: { q: query } })}</p>
+        <p>{query ? $_('routes.recipes.no_match', { values: { q: query } }) : $_('routes.recipes.no_match_filter')}</p>
       </div>
     {:else}
       <div class="grid" bind:this={gridEl} style="grid-template-columns:{gridTemplate}">

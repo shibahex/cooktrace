@@ -50,7 +50,8 @@
       "empty_title": "No Recipes Yet",
       "empty_desc": "Add your first recipe to get started.",
       "create_cta": "Create a Recipe",
-      "no_match": "No recipes match \"{q}\"."
+      "no_match": "No recipes match \"{q}\".",
+      "no_match_filter": "No recipes match these filters."
     },
     "pantry":   {
       "title": "Pantry",
