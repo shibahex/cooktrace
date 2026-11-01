@@ -25,6 +25,7 @@
   import ImportUrlDialog from '../components/recipe/ImportUrlDialog.svelte';
   import { relativeTime } from '../lib/relative-time.js';
   import { longpress } from '../lib/long-press.js';
+  import { dragScroll } from '../lib/drag-scroll.js';
   import { confirmDialog } from '../stores/confirmDialog.js';
   import { buildRecipeCardPages, buildRecipeShareText } from '../lib/recipe-card.js';
   import { svgToPngBlob, shareBlobs } from '../lib/shopping-card.js';
@@ -1368,7 +1369,7 @@
       </div>
       <div class="filter-row">
         {#if categories.length > 0}
-          <div class="cat-filter" role="radiogroup" aria-label="Filter recipes">
+          <div class="cat-filter" role="radiogroup" aria-label="Filter recipes" use:dragScroll>
             <button class="cat-chip fav-chip"
               class:active={favoritesOnly}
               on:click={() => favoritesOnly = !favoritesOnly}
@@ -1451,7 +1452,7 @@
           </div>
           <div class="filter-row">
             {#if sharedCategories.length > 0}
-              <div class="cat-filter" role="radiogroup" aria-label="Filter shared recipes">
+              <div class="cat-filter" role="radiogroup" aria-label="Filter shared recipes" use:dragScroll>
                 <button class="cat-chip"
                   class:active={!sharedCategorySlug}
                   on:click={() => sharedCategorySlug = ''}
@@ -1971,6 +1972,9 @@
     touch-action: pan-x;
   }
   .cat-filter::-webkit-scrollbar { display: none; }
+  /* Mouse drag-scroll (lib/drag-scroll.js): no text selection or hover flicker mid-drag. */
+  .cat-filter:global(.drag-scrolling) { cursor: grabbing; user-select: none; }
+  .cat-filter:global(.drag-scrolling) .cat-chip { pointer-events: none; }
   .cat-chip {
     flex-shrink: 0;
     background: var(--surface-1);
