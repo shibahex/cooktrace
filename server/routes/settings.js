@@ -4,11 +4,13 @@ import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { isServerOnlyKey } from '../lib/server-only-keys.js';
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
+import { lanAllowedFor } from '../lib/ourfamily-security.js'; // ourfamily fork
 
 // Push services usually live on the home network, so that's allowed for
 // every account; the address is still checked, and a redirect only
 // followed on the same server.
-const _sendPush = (url, init) => fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+// ourfamily fork: the home network only for real accounts (lib/ourfamily-security.js).
+const _sendPush = (url, init, userId) => fetchChecked(url, init, { allowPrivate: lanAllowedFor(userId, 'ALLOW_PRIVATE_PUSH_URLS'), allowPrivateEnvHint: 'ALLOW_PRIVATE_PUSH_URLS', maxRedirects: 3, sameOrigin: true });
 
 // The service's own short error ("unauthorized"), never its raw reply.
 async function _pushErrorMessage(resp) {
@@ -138,7 +140,7 @@ async function _pushTestHandler(req, res) {
       resp = await _sendPush(`${serviceBase(url) ?? url}/message?token=${encodeURIComponent(token)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: title || 'CookTrace', message: message || 'Test notification — connected!', priority: priority || 5 }),
-      });
+      }, u);
     } else if (svc === 'ntfy') {
       const url = _s('ntfyUrl') || 'https://ntfy.sh';
       const topic = _s('ntfyTopic');
@@ -148,7 +150,7 @@ async function _pushTestHandler(req, res) {
       if (token) headers['Authorization'] = `Bearer ${token}`;
       resp = await _sendPush(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, {
         method: 'POST', headers, body: message || 'Test notification — connected!',
-      });
+      }, u);
     } else if (svc === 'apprise') {
       const url = _s('appriseUrl');
       const tag = _s('appriseTag');
@@ -157,7 +159,7 @@ async function _pushTestHandler(req, res) {
       if (tag) body.tag = tag;
       resp = await _sendPush(`${serviceBase(url) ?? url}/notify`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
+      }, u);
     } else {
       return res.status(400).json({ error: `Unknown service: ${svc}` });
     }

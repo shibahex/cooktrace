@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import dns from 'dns/promises';
 import net from 'net';
 import { logger } from '../logger.js';
-import { isLinkLocalOrCloudMeta, isPrivateOrLoopback } from './ssrf-guard.js';
+import { isLinkLocalOrCloudMeta, isPrivateOrLoopback, fetchChecked, readBody } from './ssrf-guard.js';
 
 const UPLOADS_DIR = process.env.UPLOADS_PATH || './uploads';
 
@@ -86,10 +86,13 @@ export async function localizeImage(img_url) {
     // Download the image
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
-    const response = await fetch(img_url, {
+    // ourfamily fork: the checked fetch (address re-checked on every
+    // redirect, connection pinned to it), not a plain fetch that a redirect
+    // or a DNS change could send onto the home network.
+    const response = await fetchChecked(img_url, {
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CookTrace/1.0)' },
-    });
+    }, { maxRedirects: 3 });
     clearTimeout(timer);
 
     if (!response.ok) {
@@ -97,7 +100,12 @@ export async function localizeImage(img_url) {
       return img_url; // Keep original URL — might work sometimes
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const buffer = await readBody(response, 15 * 1024 * 1024);
+    // Only a real image is written into the public uploads folder.
+    if (!detectImageTypeFromBuffer(buffer)) {
+      logger.debug(`[image-localizer] Not an image, skipping: ${img_url.substring(0, 80)}`);
+      return img_url;
+    }
     if (buffer.length < 100) {
       logger.debug(`[image-localizer] Image too small (${buffer.length}b), skipping: ${img_url.substring(0, 80)}`);
       return img_url;
@@ -121,7 +129,7 @@ export async function localizeImage(img_url) {
 function _guessExtension(url) {
   try {
     const pathname = new URL(url).pathname;
-    const match = pathname.match(/\.(jpe?g|png|webp|gif|svg)$/i);
+    const match = pathname.match(/\.(jpe?g|png|webp|gif)$/i); // ourfamily fork: no svg (it can carry script)
     if (match) return '.' + match[1].toLowerCase();
   } catch {}
   return '.jpg'; // Default to jpg

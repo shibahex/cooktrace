@@ -25,7 +25,7 @@
   import NutritionFactsBox from '../components/recipe/NutritionFactsBox.svelte';
   import CookLogDialog from '../components/recipe/CookLogDialog.svelte';
   import { relativeTime, shortDate } from '../lib/relative-time.js';
-  import { formatDate, formatUpdated, domainFromUrl } from '../lib/format.js';
+  import { formatDate, formatUpdated, domainFromUrl, safeHref } from '../lib/format.js';
   import { dateFormat, timeFormat } from '../stores/settings.js';
   import { scaleQty, displayQty, displayQtyParts, parseQty } from '../lib/qty.js';
   import { convertWithinFamily, convertQty, unitFamily } from '../lib/recipe-nutrition.js';
@@ -1183,10 +1183,10 @@
               {#if recipe.created_by_full_name || recipe.created_by_username}<span class="dot">·</span>{/if}
               <span title={recipe.created_at}>{formatDate(recipe.created_at, $dateFormat)}</span>
             {/if}
-            {#if recipe.source_url && domainFromUrl(recipe.source_url)}
+            {#if safeHref(recipe.source_url) && domainFromUrl(recipe.source_url)}
               <span class="dot">·</span>
               <span class="byline-source">
-                From <a href={recipe.source_url} target="_blank" rel="noopener noreferrer">
+                From <a href={safeHref(recipe.source_url)} target="_blank" rel="noopener noreferrer">
                   {domainFromUrl(recipe.source_url)}
                 </a>
               </span>
@@ -1574,7 +1574,7 @@
             {:else if v.kind === 'video'}
               <video class="video-native" controls preload="metadata" src={v.src}></video>
             {:else}
-              <a class="video-fallback" href={recipe.video_url} target="_blank" rel="noopener noreferrer">
+              <a class="video-fallback" href={safeHref(recipe.video_url)} target="_blank" rel="noopener noreferrer">
                 <span class="material-symbols-rounded">play_circle</span>
                 Watch the video
               </a>

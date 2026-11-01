@@ -65,6 +65,22 @@ initUpdateCheckSetting();
 
 const app  = express();
 const PORT = process.env.PORT || 3003;
+
+// ourfamily fork: read the visitor's real address from X-Forwarded-For when
+// the request came through a proxy on this machine or the private network
+// (Docker, nginx, cloudflared). Without it every visitor looked like the
+// proxy, so the login limit (10 tries per address) locked everyone out at
+// once. A request straight from the internet isn't trusted, so it can't
+// fake an address. TRUST_PROXY overrides: a hop count, true/false, or a
+// comma-separated list of proxy addresses.
+{
+  const raw = String(process.env.TRUST_PROXY ?? '').trim();
+  const trust = raw === '' ? 'loopback, linklocal, uniquelocal'
+    : /^\d+$/.test(raw) ? Number(raw)
+    : /^(true|false)$/i.test(raw) ? raw.toLowerCase() === 'true'
+    : raw;
+  app.set('trust proxy', trust);
+}
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Reverse-proxy / subpath support ───────────────────────────────────────
@@ -119,7 +135,11 @@ router.use((req, res, next) => {
     const isCapacitor = origin === 'https://localhost'
       || origin === 'http://localhost'
       || origin === 'https://app.cooktrace.local';
-    const isSameHost = host && origin.includes(host);
+    // ourfamily fork: the exact host, not "contains": https://recipe.example.com.evil.net
+    // contains recipe.example.com and used to be let in with credentials.
+    let originHost = null;
+    try { originHost = new URL(origin).host; } catch { /* not a URL */ }
+    const isSameHost = !!host && originHost === host;
     if (isCapacitor || isSameHost) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');

@@ -21,7 +21,7 @@ FROM node:20-alpine
 # is required by pip on Alpine 3.18+ which marks system Python as
 # externally managed. samba-client (smbclient) copies backups to an SMB
 # share (ourfamily fork, server/lib/smb-backup.js).
-RUN apk add --no-cache python3 py3-pip make g++ samba-client \
+RUN apk add --no-cache python3 py3-pip make g++ samba-client su-exec \
     && pip3 install --no-cache-dir --break-system-packages 'recipe-scrapers>=14.0.0'
 WORKDIR /app
 COPY server/package*.json ./
@@ -42,6 +42,9 @@ COPY --from=build /app/package.json ./package.json
 # Falls back to reading /app/package.json at runtime.
 ARG APP_VERSION=""
 ENV TRACEAPPS_APP_VERSION=${APP_VERSION}
+# Production mode: the server refuses to start without JWT_SECRET instead
+# of signing sign-ins with the public dev default (middleware/auth.js).
+ENV NODE_ENV=production
 EXPOSE 3003
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "index.js"]

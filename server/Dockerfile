@@ -1,7 +1,7 @@
 FROM node:20-alpine
 
 # better-sqlite3 needs python + make to compile
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ su-exec
 
 WORKDIR /app
 COPY package*.json ./
@@ -10,6 +10,7 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 COPY . .
 
+ENV NODE_ENV=production
 EXPOSE 3003
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "index.js"]

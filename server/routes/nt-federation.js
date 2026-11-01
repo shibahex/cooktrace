@@ -16,6 +16,7 @@ import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import { fetchChecked, serviceBase } from '../lib/ssrf-guard.js';
+import { lanAllowedFor } from '../lib/ourfamily-security.js'; // ourfamily fork
 
 const router = Router();
 router.use(requireAuth);
@@ -37,7 +38,7 @@ function _config(userId) {
   if (!url || !token) return null;
   const base = serviceBase(url);
   if (!base) return null;
-  return { url: base, token, enabled: !!enabled };
+  return { url: base, token, enabled: !!enabled, userId };
 }
 
 // Resolve a possibly-relative image path against the NT origin so the
@@ -101,7 +102,7 @@ async function _ntFetch(cfg, path, opts = {}) {
         ...(opts.headers || {}),
       },
       signal: ctrl.signal,
-    }, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+    }, { allowPrivate: lanAllowedFor(cfg.userId, 'ALLOW_PRIVATE_NT_URLS'), allowPrivateEnvHint: 'ALLOW_PRIVATE_NT_URLS', maxRedirects: 3, sameOrigin: true });
     return res;
   } finally { clearTimeout(t); }
 }
@@ -115,7 +116,7 @@ router.post('/test', wrap(async (req, res) => {
   const url = serviceBase(raw);
   if (!url) return res.status(400).json({ ok: false, error: 'URL must start with http(s)://' });
   try {
-    const ntRes = await _ntFetch({ url, token }, '/api/auth/me');
+    const ntRes = await _ntFetch({ url, token, userId: u }, '/api/auth/me');
     if (!ntRes.ok) return res.json({ ok: false, error: `NutriTrace returned ${ntRes.status}` });
     const body = await ntRes.json().catch(() => ({}));
     // Only the name the Settings page shows, not whatever the address answered.

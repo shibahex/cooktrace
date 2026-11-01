@@ -12,7 +12,7 @@
   import { fade } from 'svelte/transition';
   import { resolveAssetUrl } from '../lib/platform.js';
   import { formatDuration } from '../lib/duration.js';
-  import { formatDate, domainFromUrl } from '../lib/format.js';
+  import { formatDate, domainFromUrl, safeHref } from '../lib/format.js';
   import { dateFormat } from '../stores/settings.js';
   import { scaleQty, displayQty } from '../lib/qty.js';
   import KitchenGear from '../components/recipe/KitchenGear.svelte';
@@ -107,9 +107,9 @@
             <span class="dot">·</span>
             <span>{formatDate(recipe.created_at, $dateFormat)}</span>
           {/if}
-          {#if recipe.source_url && domainFromUrl(recipe.source_url)}
+          {#if safeHref(recipe.source_url) && domainFromUrl(recipe.source_url)}
             <span class="dot">·</span>
-            <span>{$_('public_recipe_ct.from_prefix')}<a href={recipe.source_url} target="_blank" rel="noopener noreferrer">{domainFromUrl(recipe.source_url)}</a></span>
+            <span>{$_('public_recipe_ct.from_prefix')}<a href={safeHref(recipe.source_url)} target="_blank" rel="noopener noreferrer">{domainFromUrl(recipe.source_url)}</a></span>
           {/if}
         </p>
 

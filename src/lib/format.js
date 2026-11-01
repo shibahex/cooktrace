@@ -76,6 +76,19 @@ export function formatUpdated(input, fmt = 'natural') {
 }
 
 /** Extract a clean domain from a URL ("https://www.seriouseats.com/x" → "seriouseats.com"). */
+/** ourfamily fork: the link if it's a web address (http/https) or one of our
+ *  /uploads/ files, else null. For href= on links anyone can edit, so a
+ *  javascript: or data: link never runs in the app when clicked. */
+export function safeHref(url) {
+  const s = typeof url === 'string' ? url.trim() : '';
+  if (!s) return null;
+  if (/^\/?uploads\//.test(s)) return s;
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? s : null;
+  } catch { return null; }
+}
+
 export function domainFromUrl(url) {
   if (!url || typeof url !== 'string') return '';
   try {

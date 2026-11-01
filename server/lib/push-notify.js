@@ -14,13 +14,15 @@
 import db from '../db.js';
 import { logger } from '../logger.js';
 import { fetchChecked, serviceBase } from './ssrf-guard.js';
+import { lanAllowedFor } from './ourfamily-security.js'; // ourfamily fork
 
 // Push services (Gotify, ntfy, Apprise) usually live on the home network,
 // so that's allowed for every account; the address is still checked on
 // every redirect hop, a redirect only followed on the same server (never
 // cloud metadata), and the connection pinned.
-async function _send(url, init) {
-  const res = await fetchChecked(url, init, { allowPrivate: true, maxRedirects: 3, sameOrigin: true });
+// ourfamily fork: not for the shared guest or household accounts (lib/ourfamily-security.js).
+async function _send(url, init, userId) {
+  const res = await fetchChecked(url, init, { allowPrivate: lanAllowedFor(userId, 'ALLOW_PRIVATE_PUSH_URLS'), allowPrivateEnvHint: 'ALLOW_PRIVATE_PUSH_URLS', maxRedirects: 3, sameOrigin: true });
   try { await res.body?.cancel(); } catch {}
   return res;
 }
@@ -85,7 +87,7 @@ async function _pushGotify(userId, title, message, priority) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: `CookTrace — ${title}`, message, priority }),
-  });
+  }, userId);
   if (!res.ok) throw new Error(`Gotify ${res.status}`);
   logger.debug?.(`[push] gotify: "${title}" → user ${userId}`);
 }
@@ -99,7 +101,7 @@ async function _pushNtfy(userId, title, message, priority) {
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await _send(`${serviceBase(url) ?? url}/${encodeURIComponent(topic)}`, {
     method: 'POST', headers, body: message,
-  });
+  }, userId);
   if (!res.ok) throw new Error(`ntfy ${res.status}`);
   logger.debug?.(`[push] ntfy: "${title}" → user ${userId}`);
 }
@@ -114,7 +116,7 @@ async function _pushApprise(userId, title, message, priority) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, userId);
   if (!res.ok) throw new Error(`Apprise ${res.status}`);
   logger.debug?.(`[push] apprise: "${title}" → user ${userId}`);
 }

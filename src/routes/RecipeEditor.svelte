@@ -26,6 +26,7 @@
   import Spinner from '../components/ui/Spinner.svelte';
 
   import { foldText } from '../lib/search-text.js';
+  import { safeHref } from '../lib/format.js'; // ourfamily fork
 
   // Units where decimal qtys feel awkward — auto-format to fractions
   // (0.25 cup → 1/4 cup, 0.5 tsp → 1/2 tsp). Volume-y units only;
@@ -1435,7 +1436,7 @@
                     src={resolveAssetUrl(videoUrl)}></video>
                   <span class="video-hint">{$_('recipe_editor_ct.local_upload')}</span>
                 {:else}
-                  <a class="video-link" href={videoUrl} target="_blank" rel="noopener noreferrer">
+                  <a class="video-link" href={safeHref(videoUrl)} target="_blank" rel="noopener noreferrer">
                     <span class="material-symbols-rounded">open_in_new</span>
                     {videoUrl}
                   </a>

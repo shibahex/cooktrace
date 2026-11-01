@@ -19,6 +19,8 @@ services:
       # Do not change — container-internal paths tied to volume mounts above
       - DB_PATH=/data/db/cooktrace.db
       - UPLOADS_PATH=/data/uploads
+      # Refuse to start without JWT_SECRET instead of using the public default
+      - NODE_ENV=production
       # Required if using user management — set a long random secret
       - JWT_SECRET=${JWT_SECRET}
       # Or mount a Swarm/Docker secret and set JWT_SECRET_FILE=/run/secrets/<name>

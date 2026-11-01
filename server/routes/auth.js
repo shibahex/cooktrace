@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import db from '../db.js';
 import { wrap } from '../logger.js';
-import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin } from '../middleware/auth.js';
+import { signToken, sessionMaxAge, userMgmtActive, requireAuth, requireAdmin, revokeSessions } from '../middleware/auth.js';
 import { communityMode } from '../lib/community.js'; // ourfamily fork
 import { listProviders as oidcListProviders, publicProvider as oidcPublicProvider, isPasswordLoginEnabled, listUserLinks } from '../lib/oidc.js';
 import { sendPasswordReset, sendInvite, isEmailConfigured } from '../email.js';
@@ -260,6 +260,7 @@ router.put('/password', requireAuth, wrap((req, res) => {
   }
 
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), req.user.id);
+  revokeSessions(req.user.id); // ourfamily fork: really end the other devices' sessions
   // Rotate JWT (and its CSRF token) so existing sessions on other devices stop working.
   const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   res.cookie('ct_token', signToken(updated), { ...COOKIE_OPTS, maxAge: sessionMaxAge() });
@@ -322,6 +323,7 @@ router.put('/users/:id/password', requireAuth, requireAdmin, wrap((req, res) => 
   const { new_password } = req.body;
   { const pwErr = validatePassword(new_password); if (pwErr) return res.status(400).json({ error: pwErr }); }
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 12), id);
+  revokeSessions(id); // ourfamily fork: a reset password ends that account's sign-ins
   res.json({ ok: true });
 }));
 
@@ -463,6 +465,7 @@ router.post('/reset-password', wrap((req, res) => {
   if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'Reset link has expired' });
 
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, 12), row.user_id);
+  revokeSessions(row.user_id); // ourfamily fork
   db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);

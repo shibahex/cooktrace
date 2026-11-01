@@ -64,7 +64,7 @@ test('assertSafeUrl is re-checked inside the retry loop, not just once before it
 });
 
 test('image-localizer.js delegates IP classification to the shared ssrf-guard.js instead of its own copy', () => {
-  assert.match(imageLocJs, /import \{ isLinkLocalOrCloudMeta, isPrivateOrLoopback \} from '\.\/ssrf-guard\.js'/);
+  assert.match(imageLocJs, /import \{ isLinkLocalOrCloudMeta, isPrivateOrLoopback(, [a-zA-Z, ]+)? \} from '\.\/ssrf-guard\.js'/);
   assert.doesNotMatch(imageLocJs, /o\[0\] === 100 && o\[1\] >= 64/, 'the old inline CGNAT check should be gone');
 });
 
